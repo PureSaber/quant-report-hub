@@ -1,0 +1,7 @@
+{
+  "name": "quant-report-hub",
+  "private": true,
+  "scripts": {
+    "lint": "ruff check quant_report_hub tests"
+  }
+}

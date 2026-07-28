@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-report-hub"
+version = "0.2.0"
+description = "Unified visualization hub for spread, equity multifactor, and ML research outputs"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "matplotlib>=3.7",
+    "seaborn>=0.13",
+    "PyYAML>=6.0",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.9.0"]
+
+[project.scripts]
+quant-report = "quant_report_hub.cli:main"
+spread-viz = "quant_report_hub.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["quant_report_hub*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
