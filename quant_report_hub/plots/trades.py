@@ -8,7 +8,7 @@ import pandas as pd
 import seaborn as sns
 
 from quant_report_hub.context import PlotContext
-from quant_report_hub.plots.style import NEU, apply_style, save_fig
+from quant_report_hub.plots.style import NEU, POS, apply_style, save_fig
 
 
 def plot_06_roundtrip(ctx: PlotContext) -> Path | None:
