@@ -16,7 +16,7 @@ def plot_06_roundtrip(ctx: PlotContext) -> Path | None:
     if rt.empty:
         return None
     apply_style()
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
     sns.histplot(rt["gross_pnl"], kde=True, ax=ax1, color=NEU, bins=30)
     ax1.set_title("Round-trip 净盈亏分布")
     ax1.set_xlabel("盈亏（元）")
@@ -50,7 +50,7 @@ def plot_09_signal_fill(ctx: PlotContext) -> Path | None:
     sdf = sig_daily.reindex(idx, fill_value=0)
     fdf = fill_daily.reindex(idx, fill_value=0)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 6))
+    _fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 6))
     ax1.plot(idx, sdf.values, label="信号数", color=NEU)
     ax1.plot(idx, fdf.values, label="成交笔数", color=POS)
     ax1.set_title(f"{ctx.run_id} — 信号 vs 成交")

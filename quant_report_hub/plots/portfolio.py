@@ -25,7 +25,7 @@ def plot_01_nav_drawdown(ctx: PlotContext) -> Path | None:
     apply_style()
     nav = port["net_value"] if "net_value" in port.columns else net_value_from_pct(port["daily_pnl_pct"])
     dd = drawdown_additive(nav)
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=ctx.cfg.figsize_tall, gridspec_kw={"height_ratios": [3, 1]})
+    _fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=ctx.cfg.figsize_tall, gridspec_kw={"height_ratios": [3, 1]})
     ax1.plot(port["date"], nav, color=NEU, lw=1.5)
     ax1.set_title(f"{ctx.run_id} — 组合净值")
     ax1.set_ylabel("净值")
@@ -44,7 +44,7 @@ def plot_02_daily_pnl_dist(ctx: PlotContext) -> Path | None:
     if port.empty:
         return None
     apply_style()
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=ctx.cfg.figsize_wide)
+    _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=ctx.cfg.figsize_wide)
     colors = [POS if v >= 0 else NEG for v in port["daily_pnl"]]
     ax1.bar(port["date"], port["daily_pnl"], color=colors, width=1.0)
     ax1.set_title("日盈亏")
@@ -70,7 +70,7 @@ def plot_04_commission_vs_pnl(ctx: PlotContext) -> Path | None:
     cum_net = port["daily_pnl"].cumsum()
     cum_gross = gross_pnl.cumsum()
     cum_comm = port["commission"].cumsum()
-    fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
+    _fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
     ax.plot(port["date"], cum_gross, label="累计毛盈亏", color=POS, lw=1.5)
     ax.plot(port["date"], cum_net, label="累计净盈亏", color=NEU, lw=1.5)
     ax.plot(port["date"], cum_comm, label="累计手续费", color=NEG, lw=1.2, ls="--")
@@ -92,7 +92,7 @@ def plot_05_activity(ctx: PlotContext) -> Path | None:
     if not sym.empty:
         active = sym[sym["daily_pnl"] != 0].groupby("date")["spread"].nunique()
         active_spreads = active.reindex(port["date"]).fillna(0)
-    fig, ax1 = plt.subplots(figsize=ctx.cfg.figsize_wide)
+    _fig, ax1 = plt.subplots(figsize=ctx.cfg.figsize_wide)
     ax1.bar(port["date"], port["num_trades"], color=NEU, alpha=0.7, width=1.0, label="成交笔数")
     ax1.set_ylabel("成交笔数")
     ax1.set_title(f"{ctx.run_id} — 交易活跃度")
@@ -119,7 +119,7 @@ def plot_12_monthly(ctx: PlotContext) -> Path | None:
     monthly["label"] = monthly["year"].astype(str) + "-" + monthly["month"].astype(str).str.zfill(2)
     annual = port.groupby(port["date"].dt.year)["daily_pnl_pct"].sum().reset_index()
     annual.columns = ["year", "ret"]
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4))
+    _fig, axes = plt.subplots(1, 3, figsize=(16, 4))
     axes[0].bar(monthly["label"], monthly["ret"] * 100, color=[POS if v >= 0 else NEG for v in monthly["ret"]])
     axes[0].set_title("月度收益率")
     axes[0].tick_params(axis="x", rotation=90)

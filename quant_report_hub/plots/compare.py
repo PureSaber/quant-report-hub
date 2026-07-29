@@ -17,7 +17,7 @@ def plot_14_multi_run(ctx: CompareContext) -> list[Path]:
     apply_style()
     outputs: list[Path] = []
 
-    fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
+    _fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
     metrics_rows = []
     for run in ctx.runs:
         port = run.portfolio
@@ -44,7 +44,7 @@ def plot_14_multi_run(ctx: CompareContext) -> list[Path]:
     outputs.append(Path(save_fig(p1, ctx.cfg.dpi)))
 
     if len(metrics_rows) >= 2:
-        fig, ax = plt.subplots(figsize=(6, 6), subplot_kw={"projection": "polar"})
+        _fig, ax = plt.subplots(figsize=(6, 6), subplot_kw={"projection": "polar"})
         labels = ["Sharpe", "Calmar", "胜率", "累计收益", "1-手续费占比"]
         angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
         angles += angles[:1]
@@ -66,7 +66,7 @@ def plot_14_multi_run(ctx: CompareContext) -> list[Path]:
         p2 = ctx.out_dir / "14_metrics_radar.png"
         outputs.append(Path(save_fig(p2, ctx.cfg.dpi)))
 
-        fig, ax = plt.subplots(figsize=(6, 5))
+        _fig, ax = plt.subplots(figsize=(6, 5))
         for row in metrics_rows:
             ax.scatter(abs(row["max_dd"]) * 100, row["total_return"] * 100, s=80, label=row["run_id"])
             ax.annotate(row["run_id"], (abs(row["max_dd"]) * 100, row["total_return"] * 100), fontsize=8)

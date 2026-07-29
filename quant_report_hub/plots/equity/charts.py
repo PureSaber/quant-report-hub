@@ -17,7 +17,7 @@ def plot_16_ic_summary(ctx: PlotContext) -> Path | None:
     factor_col = "factor" if "factor" in ic.columns else ic.columns[0]
     value_col = "ic_mean" if "ic_mean" in ic.columns else ic.columns[-1]
     apply_style()
-    fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
+    _fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
     ax.bar(ic[factor_col].astype(str), ic[value_col].astype(float), color=NEU)
     ax.axhline(0, color="gray", lw=0.8)
     ax.set_title(f"{ctx.run_id} — IC 均值")
@@ -32,7 +32,7 @@ def plot_17_synthesis_compare(ctx: PlotContext) -> Path | None:
     cap = ctx.extras.get("capital_curves")
     if cap is not None and not cap.empty and "date" in cap.columns:
         apply_style()
-        fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
+        _fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
         for col in [c for c in cap.columns if c != "date"]:
             ax.plot(cap["date"], cap[col].astype(float), lw=1.2, label=col)
         ax.set_title(f"{ctx.run_id} — 合成方法资金曲线")
@@ -44,7 +44,7 @@ def plot_17_synthesis_compare(ctx: PlotContext) -> Path | None:
     if synth is None or synth.empty:
         return None
     apply_style()
-    fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
+    _fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
     label_col = synth.columns[0]
     value_col = synth.columns[-1]
     ax.bar(synth[label_col].astype(str), synth[value_col].astype(float), color=NEU)

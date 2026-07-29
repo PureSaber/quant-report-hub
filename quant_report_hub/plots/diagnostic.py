@@ -40,7 +40,7 @@ def plot_08_zscore(ctx: PlotContext) -> list[Path]:
             continue
         apply_style()
         z = compute_zscore(bars["close"], lookback)
-        fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 7), gridspec_kw={"height_ratios": [2, 1]})
+        _fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 7), gridspec_kw={"height_ratios": [2, 1]})
         ax1.plot(bars["datetime"], bars["close"], color=NEU, lw=1)
         ax1.set_title(f"{spread} — 价差与 z-score")
         ax1.set_ylabel("comb 收盘价")
@@ -77,7 +77,7 @@ def plot_10_oi_filter(ctx: PlotContext) -> Path | None:
         return None
     apply_style()
     entries = signals[signals["offset"] == "open"].copy()
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
     if "bar_oi" in entries.columns:
         ax1.scatter(entries["bar_oi"], entries["price"], alpha=0.5, s=15, c=NEU)
         ax1.set_xlabel("bar OI")
@@ -109,7 +109,7 @@ def plot_11_roll_events(ctx: PlotContext) -> Path | None:
         return None
     apply_style()
     nav = port["net_value"] if "net_value" in port.columns else port["daily_pnl_pct"].cumsum() + 1
-    fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
+    _fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
     ax.plot(port["date"], nav, color=NEU, lw=1.5)
     roll_dates = pd.to_datetime(rolls["tradingday"]).dropna().unique()
     for d in roll_dates:
