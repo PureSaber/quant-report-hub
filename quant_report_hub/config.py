@@ -53,11 +53,11 @@ def plot_groups_for(adapter: str) -> dict[str, tuple[str, ...]]:
 
 
 __all__ = [
-    "TRADING_DAYS",
     "ANNUAL_DAYS",
+    "EQUITY_PLOT_GROUPS",
     "PLOT_GROUPS",
     "SPREAD_PLOT_GROUPS",
-    "EQUITY_PLOT_GROUPS",
+    "TRADING_DAYS",
     "VizConfig",
     "plot_groups_for",
 ]

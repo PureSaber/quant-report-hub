@@ -113,17 +113,17 @@ def monthly_returns(daily_pnl_pct: pd.Series, dates: pd.Series) -> pd.DataFrame:
 
 
 __all__ = [
-    "net_value_from_pct",
+    "ANNUAL_DAYS",
+    "TRADING_DAYS",
+    "active_returns",
     "drawdown_additive",
     "drawdown_relative",
-    "active_returns",
-    "summarize_returns",
-    "rolling_sharpe",
+    "monthly_returns",
+    "net_value_from_pct",
+    "product_prefix",
     "rolling_max_drawdown",
+    "rolling_sharpe",
     "spread_cumulative_pnl",
     "spread_nav",
-    "product_prefix",
-    "monthly_returns",
-    "TRADING_DAYS",
-    "ANNUAL_DAYS",
+    "summarize_returns",
 ]

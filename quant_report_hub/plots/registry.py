@@ -54,4 +54,4 @@ def run_compare(ctx: CompareContext) -> list[Path]:
     return compare.plot_14_multi_run(ctx)
 
 
-__all__ = ["PLOT_REGISTRY", "run_plots", "run_compare"]
+__all__ = ["PLOT_REGISTRY", "run_compare", "run_plots"]

@@ -92,4 +92,4 @@ def compute_zscore(closes: pd.Series, lookback: int) -> pd.Series:
     return (s - mu) / std.replace(0, pd.NA)
 
 
-__all__ = ["load_spread_bars", "compute_zscore", "spread_product", "spread_pair_folder"]
+__all__ = ["compute_zscore", "load_spread_bars", "spread_pair_folder", "spread_product"]
