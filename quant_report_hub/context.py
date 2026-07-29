@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from quant_report_hub.adapters.base import RunBundle
 from quant_report_hub.adapters import get_adapter
+from quant_report_hub.adapters.base import RunBundle
 from quant_report_hub.config import VizConfig
 from quant_report_hub.metrics import net_value_from_pct, spread_cumulative_pnl
 from quant_report_hub.pairing import pair_roundtrips
