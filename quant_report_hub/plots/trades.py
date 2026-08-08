@@ -8,14 +8,13 @@ import pandas as pd
 import seaborn as sns
 
 from quant_report_hub.context import PlotContext
-from quant_report_hub.plots.style import NEU, POS, apply_style, save_fig
+from quant_report_hub.plots.style import NEU, POS, prepare_plot, save_ctx_plot
 
 
 def plot_06_roundtrip(ctx: PlotContext) -> Path | None:
     rt = ctx.roundtrips
-    if rt.empty:
+    if not prepare_plot(rt):
         return None
-    apply_style()
     _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
     sns.histplot(rt["gross_pnl"], kde=True, ax=ax1, color=NEU, bins=30)
     ax1.set_title("Round-trip 净盈亏分布")
@@ -27,16 +26,14 @@ def plot_06_roundtrip(ctx: PlotContext) -> Path | None:
         ax2.set_xlabel("小时")
     else:
         ax2.text(0.5, 0.5, "持仓时长不可用", ha="center", va="center", transform=ax2.transAxes)
-    out = ctx.out_dir / "06_roundtrip_pnl.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "06_roundtrip_pnl.png")
 
 
 def plot_09_signal_fill(ctx: PlotContext) -> Path | None:
     signals = ctx.signals
     trades = ctx.trades
-    if signals.empty and trades.empty:
+    if not prepare_plot(signals, trades, require_all=False):
         return None
-    apply_style()
     sig_daily = pd.Series(dtype=int)
     fill_daily = pd.Series(dtype=int)
     if not signals.empty:
@@ -62,8 +59,7 @@ def plot_09_signal_fill(ctx: PlotContext) -> Path | None:
     ax2.set_title("月度成交转化率 (%)")
     ax2.set_ylabel("%")
     ax2.set_xlabel("日期")
-    out = ctx.out_dir / "09_signal_vs_fill.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "09_signal_vs_fill.png")
 
 
 __all__ = ["plot_06_roundtrip", "plot_09_signal_fill"]

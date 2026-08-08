@@ -15,8 +15,8 @@ SPREAD_PLOT_GROUPS: dict[str, tuple[str, ...]] = {
 
 EQUITY_PLOT_GROUPS: dict[str, tuple[str, ...]] = {
     "common": ("01", "02", "12", "13"),
-    "equity": ("01", "02", "12", "13", "16", "17"),
-    "all": ("01", "02", "12", "13", "16", "17"),
+    "equity": ("01", "02", "12", "13", "16", "17", "18", "19"),
+    "all": ("01", "02", "12", "13", "16", "17", "18", "19"),
 }
 
 PLOT_GROUPS = SPREAD_PLOT_GROUPS

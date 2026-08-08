@@ -9,8 +9,8 @@ import pandas as pd
 import seaborn as sns
 
 from quant_report_hub.context import PlotContext
-from quant_report_hub.metrics import monthly_returns, net_value_from_pct, product_prefix, spread_nav
-from quant_report_hub.plots.style import NEG, NEU, POS, apply_style, save_fig
+from quant_report_hub.metrics import monthly_returns, portfolio_nav, product_prefix, spread_nav
+from quant_report_hub.plots.style import NEG, NEU, POS, prepare_plot, save_ctx_plot
 
 
 def _top_bottom_spreads(pnl: pd.Series, n: int) -> list[str]:
@@ -23,9 +23,8 @@ def _top_bottom_spreads(pnl: pd.Series, n: int) -> list[str]:
 
 def plot_03_spread_nav(ctx: PlotContext) -> list[Path]:
     sym = ctx.symbol
-    if sym.empty:
+    if not prepare_plot(sym):
         return []
-    apply_style()
     n = ctx.cfg.top_n
     pnl = ctx.spread_pnl
     picks = _top_bottom_spreads(pnl, n)
@@ -40,14 +39,12 @@ def plot_03_spread_nav(ctx: PlotContext) -> list[Path]:
             continue
         ax.plot(g["date"], g["nav"], lw=1.0, label=spread, alpha=0.85)
     if not port_nav.empty:
-        pnav = port_nav["net_value"] if "net_value" in port_nav.columns else net_value_from_pct(port_nav["daily_pnl_pct"])
-        ax.plot(port_nav["date"], pnav, color="black", lw=2.0, ls="--", label="组合")
+        ax.plot(port_nav["date"], portfolio_nav(port_nav), color="black", lw=2.0, ls="--", label="组合")
     ax.set_title(f"{ctx.run_id} — Top/Bottom {n} 套利对净值")
     ax.legend(fontsize=7, ncol=2, loc="upper left")
     ax.set_xlabel("日期")
     ax.set_ylabel("净值")
-    p1 = ctx.out_dir / "03_spread_nav_compare.png"
-    outputs.append(Path(save_fig(p1, ctx.cfg.dpi)))
+    outputs.append(save_ctx_plot(ctx, "03_spread_nav_compare.png"))
 
     # 月收益热力图：选累计 PnL 绝对值最大的 top 20 活跃 pair
     active_pnl = pnl[pnl != 0].abs().sort_values(ascending=False).head(20).index.tolist()
@@ -67,8 +64,7 @@ def plot_03_spread_nav(ctx: PlotContext) -> list[Path]:
             _fig, ax = plt.subplots(figsize=(max(10, pivot.shape[1] * 0.4), max(6, pivot.shape[0] * 0.3)))
             sns.heatmap(pivot * 100, cmap="RdYlGn", center=0, ax=ax, linewidths=0.2)
             ax.set_title("Top 活跃套利对 — 月收益率 (%)")
-            p2 = ctx.out_dir / "03_spread_monthly_heatmap.png"
-            outputs.append(Path(save_fig(p2, ctx.cfg.dpi)))
+            outputs.append(save_ctx_plot(ctx, "03_spread_monthly_heatmap.png"))
     return outputs
 
 
@@ -76,9 +72,8 @@ def plot_07_spread_rank(ctx: PlotContext) -> Path | None:
     pnl = ctx.spread_pnl
     sym = ctx.symbol
     trades = ctx.trades
-    if pnl.empty:
+    if not prepare_plot(pnl):
         return None
-    apply_style()
     top = pnl.head(30)
     trade_cnt = trades.groupby("spread").size() if not trades.empty else pd.Series(dtype=int)
     comm = sym.groupby("spread")["commission"].sum() if not sym.empty else pd.Series(dtype=float)
@@ -100,15 +95,13 @@ def plot_07_spread_rank(ctx: PlotContext) -> Path | None:
     ax2.set_ylabel("累计净盈亏")
     ax2.set_title("交易次数 vs 收益（气泡=手续费）")
     ax2.axhline(0, color="gray", lw=0.8)
-    out = ctx.out_dir / "07_spread_contribution.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "07_spread_contribution.png")
 
 
 def plot_15_correlation(ctx: PlotContext) -> list[Path]:
     sym = ctx.symbol
-    if sym.empty:
+    if not prepare_plot(sym):
         return []
-    apply_style()
     outputs: list[Path] = []
     active = sym[sym["daily_pnl"] != 0].groupby("spread")["daily_pnl"].sum()
     picks = active.abs().sort_values(ascending=False).head(50).index.tolist()
@@ -122,8 +115,7 @@ def plot_15_correlation(ctx: PlotContext) -> list[Path]:
     _fig, ax = plt.subplots(figsize=(12, 10))
     sns.heatmap(corr, cmap="coolwarm", center=0, ax=ax, xticklabels=True, yticklabels=True)
     ax.set_title(f"{ctx.run_id} — Top50 活跃套利对日收益相关性")
-    p1 = ctx.out_dir / "15_correlation_heatmap.png"
-    outputs.append(Path(save_fig(p1, ctx.cfg.dpi)))
+    outputs.append(save_ctx_plot(ctx, "15_correlation_heatmap.png"))
 
     active_cnt = (wide != 0).sum(axis=1)
     _fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
@@ -131,8 +123,7 @@ def plot_15_correlation(ctx: PlotContext) -> list[Path]:
     ax.set_title("每日非零收益套利对数量")
     ax.set_xlabel("日期")
     ax.set_ylabel("数量")
-    p2 = ctx.out_dir / "15_active_spread_count.png"
-    outputs.append(Path(save_fig(p2, ctx.cfg.dpi)))
+    outputs.append(save_ctx_plot(ctx, "15_active_spread_count.png"))
 
     sym2 = sym.copy()
     sym2["sector"] = sym2["spread"].map(product_prefix)
@@ -143,8 +134,7 @@ def plot_15_correlation(ctx: PlotContext) -> list[Path]:
         sns.boxplot(data=sector_daily, x="sector", y="daily_pnl", ax=ax, showfliers=False)
         ax.set_title("品种板块日盈亏分布")
         ax.tick_params(axis="x", rotation=45)
-        p3 = ctx.out_dir / "15_sector_boxplot.png"
-        outputs.append(Path(save_fig(p3, ctx.cfg.dpi)))
+        outputs.append(save_ctx_plot(ctx, "15_sector_boxplot.png"))
     return outputs
 
 

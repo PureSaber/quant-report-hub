@@ -2,10 +2,20 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+from typing import Any, Protocol
 
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
+
+
+class _PlotOutCtx(Protocol):
+    out_dir: Path
+
+    @property
+    def cfg(self) -> Any: ...
 
 _CJK_FONT_CANDIDATES = (
     "Microsoft YaHei",
@@ -61,6 +71,26 @@ def save_fig(path, dpi: int = 120) -> str:
     plt.savefig(path, dpi=dpi)
     plt.close()
     return str(path)
+
+
+def prepare_plot(*checks: pd.DataFrame | pd.Series | None, require_all: bool = True) -> bool:
+    """Apply plot style when empty checks pass; return False to skip rendering."""
+    if not checks:
+        apply_style()
+        return True
+    empties = [check is None or (hasattr(check, "empty") and check.empty) for check in checks]
+    if require_all and any(empties):
+        return False
+    if not require_all and all(empties):
+        return False
+    apply_style()
+    return True
+
+
+def save_ctx_plot(ctx: _PlotOutCtx, filename: str | Path) -> Path:
+    """Save the active figure under ctx.out_dir at ctx.cfg.dpi."""
+    path = ctx.out_dir / filename if isinstance(filename, str) else filename
+    return Path(save_fig(path, ctx.cfg.dpi))
 
 
 POS = "#2ca02c"

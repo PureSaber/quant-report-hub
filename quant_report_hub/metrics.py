@@ -13,6 +13,13 @@ def net_value_from_pct(daily_pnl_pct: pd.Series) -> pd.Series:
     return 1.0 + r.cumsum()
 
 
+def portfolio_nav(port: pd.DataFrame) -> pd.Series:
+    """Resolve net-value series from portfolio daily frame."""
+    if "net_value" in port.columns:
+        return port["net_value"]
+    return net_value_from_pct(port["daily_pnl_pct"])
+
+
 def drawdown_additive(nav: pd.Series) -> pd.Series:
     """加性回撤：nav - cummax(nav)。"""
     peak = nav.cummax()

@@ -7,14 +7,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from quant_report_hub.context import CompareContext
-from quant_report_hub.metrics import net_value_from_pct, summarize_returns
-from quant_report_hub.plots.style import apply_style, save_fig
+from quant_report_hub.metrics import portfolio_nav, summarize_returns
+from quant_report_hub.plots.style import prepare_plot, save_ctx_plot
 
 
 def plot_14_multi_run(ctx: CompareContext) -> list[Path]:
     if len(ctx.runs) < 2:
         return []
-    apply_style()
+    prepare_plot()
     outputs: list[Path] = []
 
     _fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
@@ -23,8 +23,7 @@ def plot_14_multi_run(ctx: CompareContext) -> list[Path]:
         port = run.portfolio
         if port.empty:
             continue
-        nav = port["net_value"] if "net_value" in port.columns else net_value_from_pct(port["daily_pnl_pct"])
-        ax.plot(port["date"], nav, lw=1.5, label=run.run_id)
+        ax.plot(port["date"], portfolio_nav(port), lw=1.5, label=run.run_id)
         m = summarize_returns(port["daily_pnl_pct"])
         comm_ratio = float(port["commission"].sum() / max(abs(port["daily_pnl"].sum() + port["commission"].sum()), 1))
         metrics_rows.append({
@@ -40,8 +39,7 @@ def plot_14_multi_run(ctx: CompareContext) -> list[Path]:
     ax.legend()
     ax.set_xlabel("日期")
     ax.set_ylabel("净值")
-    p1 = ctx.out_dir / "14_multi_nav.png"
-    outputs.append(Path(save_fig(p1, ctx.cfg.dpi)))
+    outputs.append(save_ctx_plot(ctx, "14_multi_nav.png"))
 
     if len(metrics_rows) >= 2:
         _fig, ax = plt.subplots(figsize=(6, 6), subplot_kw={"projection": "polar"})
@@ -63,8 +61,7 @@ def plot_14_multi_run(ctx: CompareContext) -> list[Path]:
         ax.set_xticklabels(labels)
         ax.set_title("指标雷达（归一化）")
         ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1))
-        p2 = ctx.out_dir / "14_metrics_radar.png"
-        outputs.append(Path(save_fig(p2, ctx.cfg.dpi)))
+        outputs.append(save_ctx_plot(ctx, "14_metrics_radar.png"))
 
         _fig, ax = plt.subplots(figsize=(6, 5))
         for row in metrics_rows:
@@ -74,8 +71,7 @@ def plot_14_multi_run(ctx: CompareContext) -> list[Path]:
         ax.set_ylabel("累计收益率 (%)")
         ax.set_title("收益 vs 回撤")
         ax.legend()
-        p3 = ctx.out_dir / "14_return_vs_drawdown.png"
-        outputs.append(Path(save_fig(p3, ctx.cfg.dpi)))
+        outputs.append(save_ctx_plot(ctx, "14_return_vs_drawdown.png"))
     return outputs
 
 

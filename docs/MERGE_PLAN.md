@@ -1,30 +1,30 @@
 # Merge Plan — spread-backtest-viz → quant-report-hub
 
-**Status:** Proposed (Phase 1 ready)  
+**Status:** Phase 2 complete (shim only in spread-backtest-viz)  
 **Canonical package:** `quant-report-hub`
 
 ## Duplication
 
 Core loader/metrics/plots ~99% identical. Hub adds equity adapter + plot registry.
 
-## Phase 1 — Compatibility shim (1 week)
+## Phase 1 — Compatibility shim ✅
 
 1. `spread-backtest-viz` depends on `quant-report-hub>=0.2.0`
-2. `spread_viz/cli.py` re-exports hub CLI + `DeprecationWarning`
+2. `spread_viz/cli.py` delegates to hub + `DeprecationWarning`
 3. Parity tests in `quant-report-hub/tests/test_spread_parity.py`
 4. Deprecation banner in spread-backtest-viz README
 
-## Phase 2 — Consolidate (1–2 weeks)
+## Phase 2 — Consolidate ✅
 
-1. Delete duplicated modules from spread-backtest-viz (keep shim only)
-2. health-check: viz tests only on hub
-3. Optional pipeline viz step
+1. Deleted duplicated modules from spread-backtest-viz (shim only: `spread_viz/cli.py`)
+2. health-check: viz tests on hub; spread-backtest-viz runs shim tests only
+3. Optional pipeline viz step — pending
 
-## Phase 3 — Archive (1 week)
+## Phase 3 — Archive (pending)
 
 1. Archive `PureSaber/spread-backtest-viz` on GitHub
-2. Single `spread-viz` entry point in hub `pyproject.toml`
-3. Update `quant-research-notes/repos.md`
+2. Single `spread-viz` entry point in hub `pyproject.toml` (already present)
+3. Update `quant-research-notes/repos.md` — done locally
 
 ## Rollback
 

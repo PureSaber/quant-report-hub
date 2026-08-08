@@ -8,7 +8,8 @@ import pandas as pd
 
 from quant_report_hub.context import PlotContext
 from quant_report_hub.market import compute_zscore, load_spread_bars
-from quant_report_hub.plots.style import NEG, NEU, POS, apply_style, save_fig
+from quant_report_hub.metrics import portfolio_nav
+from quant_report_hub.plots.style import NEG, NEU, POS, prepare_plot, save_ctx_plot
 
 
 def _diagnostic_spreads(ctx: PlotContext, n: int = 5) -> list[str]:
@@ -38,7 +39,7 @@ def plot_08_zscore(ctx: PlotContext) -> list[Path]:
         bars = load_spread_bars(ctx.cfg.market_root, spread, ctx.cfg.years)
         if bars.empty:
             continue
-        apply_style()
+        prepare_plot()
         z = compute_zscore(bars["close"], lookback)
         _fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 7), gridspec_kw={"height_ratios": [2, 1]})
         ax1.plot(bars["datetime"], bars["close"], color=NEU, lw=1)
@@ -65,17 +66,15 @@ def plot_08_zscore(ctx: PlotContext) -> list[Path]:
         ax2.set_ylabel("z-score")
         ax2.set_xlabel("时间")
         safe = spread.replace("&", "_").replace("/", "_")
-        out = sub / f"08_zscore_{safe}.png"
-        outputs.append(Path(save_fig(out, ctx.cfg.dpi)))
+        outputs.append(save_ctx_plot(ctx, sub / f"08_zscore_{safe}.png"))
     return outputs
 
 
 def plot_10_oi_filter(ctx: PlotContext) -> Path | None:
     signals = ctx.signals
     trades = ctx.trades
-    if signals.empty:
+    if not prepare_plot(signals):
         return None
-    apply_style()
     entries = signals[signals["offset"] == "open"].copy()
     _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
     if "bar_oi" in entries.columns:
@@ -96,19 +95,15 @@ def plot_10_oi_filter(ctx: PlotContext) -> Path | None:
     else:
         ax2.bar(["信号日"], [entries["action_datetime"].dt.date.nunique()], color=NEU)
         ax2.set_title("仅信号、无成交")
-    out = ctx.out_dir / "10_oi_filter.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "10_oi_filter.png")
 
 
 def plot_11_roll_events(ctx: PlotContext) -> Path | None:
     rolls = ctx.rolls
     port = ctx.portfolio
-    if port.empty:
+    if not prepare_plot(port, rolls):
         return None
-    if rolls.empty:
-        return None
-    apply_style()
-    nav = port["net_value"] if "net_value" in port.columns else port["daily_pnl_pct"].cumsum() + 1
+    nav = portfolio_nav(port)
     _fig, ax = plt.subplots(figsize=ctx.cfg.figsize_wide)
     ax.plot(port["date"], nav, color=NEU, lw=1.5)
     roll_dates = pd.to_datetime(rolls["tradingday"]).dropna().unique()
@@ -117,8 +112,7 @@ def plot_11_roll_events(ctx: PlotContext) -> Path | None:
     ax.set_title(f"{ctx.run_id} — 换月事件 ({len(roll_dates)} 次)")
     ax.set_xlabel("日期")
     ax.set_ylabel("组合净值")
-    out = ctx.out_dir / "11_roll_events.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "11_roll_events.png")
 
 
 __all__ = ["plot_08_zscore", "plot_10_oi_filter", "plot_11_roll_events"]

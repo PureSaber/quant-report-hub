@@ -37,6 +37,8 @@ PLOT_REGISTRY: dict[str, PlotFn] = {
     "15": spread.plot_15_correlation,
     "16": equity.plot_16_ic_summary,
     "17": equity.plot_17_synthesis_compare,
+    "18": equity.plot_18_factor_ic_bar,
+    "19": equity.plot_19_quantile_spread,
 }
 
 

@@ -11,19 +11,18 @@ from quant_report_hub.metrics import (
     active_returns,
     drawdown_additive,
     monthly_returns,
-    net_value_from_pct,
+    portfolio_nav,
     rolling_max_drawdown,
     rolling_sharpe,
 )
-from quant_report_hub.plots.style import NEG, NEU, POS, apply_style, save_fig
+from quant_report_hub.plots.style import NEG, NEU, POS, prepare_plot, save_ctx_plot
 
 
 def plot_01_nav_drawdown(ctx: PlotContext) -> Path | None:
     port = ctx.portfolio
-    if port.empty:
+    if not prepare_plot(port):
         return None
-    apply_style()
-    nav = port["net_value"] if "net_value" in port.columns else net_value_from_pct(port["daily_pnl_pct"])
+    nav = portfolio_nav(port)
     dd = drawdown_additive(nav)
     _fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=ctx.cfg.figsize_tall, gridspec_kw={"height_ratios": [3, 1]})
     ax1.plot(port["date"], nav, color=NEU, lw=1.5)
@@ -35,15 +34,13 @@ def plot_01_nav_drawdown(ctx: PlotContext) -> Path | None:
     ax2.set_title("加性回撤")
     ax2.set_ylabel("回撤")
     ax2.set_xlabel("日期")
-    out = ctx.out_dir / "01_nav_drawdown.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "01_nav_drawdown.png")
 
 
 def plot_02_daily_pnl_dist(ctx: PlotContext) -> Path | None:
     port = ctx.portfolio
-    if port.empty:
+    if not prepare_plot(port):
         return None
-    apply_style()
     _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=ctx.cfg.figsize_wide)
     colors = [POS if v >= 0 else NEG for v in port["daily_pnl"]]
     ax1.bar(port["date"], port["daily_pnl"], color=colors, width=1.0)
@@ -57,15 +54,13 @@ def plot_02_daily_pnl_dist(ctx: PlotContext) -> Path | None:
         ax2.set_xlabel("日收益率 (%)")
     else:
         ax2.text(0.5, 0.5, "无活跃日", ha="center", va="center", transform=ax2.transAxes)
-    out = ctx.out_dir / "02_daily_pnl.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "02_daily_pnl.png")
 
 
 def plot_04_commission_vs_pnl(ctx: PlotContext) -> Path | None:
     port = ctx.portfolio
-    if port.empty:
+    if not prepare_plot(port):
         return None
-    apply_style()
     gross_pnl = port["daily_pnl"] + port["commission"]
     cum_net = port["daily_pnl"].cumsum()
     cum_gross = gross_pnl.cumsum()
@@ -78,15 +73,13 @@ def plot_04_commission_vs_pnl(ctx: PlotContext) -> Path | None:
     ax.set_xlabel("日期")
     ax.set_ylabel("累计（元）")
     ax.legend()
-    out = ctx.out_dir / "04_commission_vs_pnl.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "04_commission_vs_pnl.png")
 
 
 def plot_05_activity(ctx: PlotContext) -> Path | None:
     port = ctx.portfolio
-    if port.empty:
+    if not prepare_plot(port):
         return None
-    apply_style()
     sym = ctx.symbol
     active_spreads = None
     if not sym.empty:
@@ -106,15 +99,13 @@ def plot_05_activity(ctx: PlotContext) -> Path | None:
         lines2, labels2 = ax2.get_legend_handles_labels()
         ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
     ax1.set_xlabel("日期")
-    out = ctx.out_dir / "05_activity.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "05_activity.png")
 
 
 def plot_12_monthly(ctx: PlotContext) -> Path | None:
     port = ctx.portfolio
-    if port.empty:
+    if not prepare_plot(port):
         return None
-    apply_style()
     monthly = monthly_returns(port["daily_pnl_pct"], port["date"])
     monthly["label"] = monthly["year"].astype(str) + "-" + monthly["month"].astype(str).str.zfill(2)
     annual = port.groupby(port["date"].dt.year)["daily_pnl_pct"].sum().reset_index()
@@ -133,16 +124,14 @@ def plot_12_monthly(ctx: PlotContext) -> Path | None:
     axes[2].bar(annual["year"].astype(str), annual["ret"] * 100, color=[POS if v >= 0 else NEG for v in annual["ret"]])
     axes[2].set_title("年度收益率")
     axes[2].set_ylabel("%")
-    out = ctx.out_dir / "12_monthly_returns.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "12_monthly_returns.png")
 
 
 def plot_13_rolling(ctx: PlotContext) -> Path | None:
     port = ctx.portfolio
-    if port.empty:
+    if not prepare_plot(port):
         return None
-    apply_style()
-    nav = port["net_value"] if "net_value" in port.columns else net_value_from_pct(port["daily_pnl_pct"])
+    nav = portfolio_nav(port)
     fig, axes = plt.subplots(len(ctx.cfg.rolling_windows), 1, sharex=True, figsize=ctx.cfg.figsize_tall)
     if len(ctx.cfg.rolling_windows) == 1:
         axes = [axes]
@@ -160,8 +149,7 @@ def plot_13_rolling(ctx: PlotContext) -> Path | None:
         ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
     axes[-1].set_xlabel("日期")
     fig.suptitle(f"{ctx.run_id} — 滚动指标", y=1.02)
-    out = ctx.out_dir / "13_rolling_metrics.png"
-    return Path(save_fig(out, ctx.cfg.dpi))
+    return save_ctx_plot(ctx, "13_rolling_metrics.png")
 
 
 __all__ = [
