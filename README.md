@@ -50,6 +50,22 @@ quant-report compare ^
   --run-ids long_only_10k_retail_2025_now synthesis_compare_2025_now
 ```
 
+### Standard run attribution
+
+The attribution command consumes the immutable `standard/` run contract. Position snapshots are
+applied to later return periods by default, which prevents same-day look-ahead. It produces security
+contribution, transaction-cost reconciliation, factor attribution, and optional Brinson-Fachler
+allocation/selection/interaction effects.
+
+```bash
+quant-report attribute ^
+  --run-dir "D:/projects/a-share-multifactor/outputs/demo" ^
+  --asset-returns "asset_returns.csv" ^
+  --factor-returns "factor_returns.csv" ^
+  --benchmark-positions "benchmark_positions.csv" ^
+  --classifications "industry.csv"
+```
+
 ## Plot groups
 
 - **spread**: charts 01–15 (full futures diagnostics)
