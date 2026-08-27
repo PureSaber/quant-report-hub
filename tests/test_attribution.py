@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from quant_lab.contracts import write_standard_run
 
 from quant_report_hub.attribution import (
     attribute_standard_run,
@@ -11,7 +12,6 @@ from quant_report_hub.attribution import (
     factor_attribution,
     holdings_attribution,
 )
-from quant_lab.contracts import write_standard_run
 
 
 def _positions() -> pd.DataFrame:
