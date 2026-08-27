@@ -5,6 +5,9 @@ import argparse
 import sys
 from pathlib import Path
 
+import pandas as pd
+
+from quant_report_hub.attribution import attribute_standard_run
 from quant_report_hub.config import VizConfig, plot_groups_for
 from quant_report_hub.context import CompareContext, PlotContext
 from quant_report_hub.plots.registry import run_compare, run_plots
@@ -73,6 +76,25 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_attribute(args: argparse.Namespace) -> int:
+    asset_returns = pd.read_csv(args.asset_returns)
+    factor_returns = pd.read_csv(args.factor_returns) if args.factor_returns else None
+    benchmark = pd.read_csv(args.benchmark_positions) if args.benchmark_positions else None
+    classifications = pd.read_csv(args.classifications) if args.classifications else None
+    manifest = attribute_standard_run(
+        args.run_dir,
+        asset_returns,
+        factor_returns=factor_returns,
+        benchmark_positions=benchmark,
+        classifications=classifications,
+        out_dir=args.out_dir or None,
+        allow_same_day_positions=args.allow_same_day_positions,
+    )
+    destination = Path(args.out_dir) if args.out_dir else Path(args.run_dir) / "attribution"
+    print(f"generated {len(manifest.files)} attribution files -> {destination}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="quant-report", description="Quant research output visualization hub")
     sub = p.add_subparsers(dest="command", required=True)
@@ -98,6 +120,16 @@ def build_parser() -> argparse.ArgumentParser:
     cmp.add_argument("--out-dir", default="")
     cmp.add_argument("--strategy", default="")
     cmp.set_defaults(func=_cmd_compare)
+
+    attribution = sub.add_parser("attribute", help="Attribute a standard research run")
+    attribution.add_argument("--run-dir", required=True)
+    attribution.add_argument("--asset-returns", required=True)
+    attribution.add_argument("--factor-returns", default="")
+    attribution.add_argument("--benchmark-positions", default="")
+    attribution.add_argument("--classifications", default="")
+    attribution.add_argument("--out-dir", default="")
+    attribution.add_argument("--allow-same-day-positions", action="store_true")
+    attribution.set_defaults(func=_cmd_attribute)
     return p
 
 
