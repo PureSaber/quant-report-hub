@@ -6,6 +6,7 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass
 from decimal import Decimal
+from operator import index
 from pathlib import Path
 from typing import Any
 
@@ -67,9 +68,9 @@ def _decimal_from_fixed(units: Any, scale: Any, field: str) -> Decimal:
     if isinstance(units, bool) or isinstance(scale, bool):
         raise V2AttributionError(f"{field}的units/scale必须是整数")
     try:
-        integer_units = int(units)
-        integer_scale = int(scale)
-    except (TypeError, ValueError, OverflowError) as exc:
+        integer_units = index(units)
+        integer_scale = index(scale)
+    except TypeError as exc:
         raise V2AttributionError(f"{field}的units/scale无效") from exc
     if integer_scale < 0 or integer_scale > 18:
         raise V2AttributionError(f"{field}的scale必须在0到18之间")
@@ -293,6 +294,10 @@ def _reference_slippage(
         )
         multiplier = _decimal_from_fixed(ref.multiplier_units, ref.multiplier_scale, "multiplier")
         fx_rate = _decimal_from_fixed(ref.fx_rate_units, ref.fx_rate_scale, "fx_rate")
+        if fill.side not in {"buy", "sell"}:
+            raise V2AttributionError("fills.side必须为buy或sell")
+        if quantity <= 0 or fill_price <= 0 or reference_price <= 0:
+            raise V2AttributionError("成交数量、成交价与reference价格必须为正")
         if multiplier <= 0 or fx_rate <= 0:
             raise V2AttributionError("slippage reference的multiplier与fx_rate必须为正")
         direction = Decimal(1) if fill.side == "buy" else Decimal(-1)
@@ -345,6 +350,7 @@ def _cost_records(
 
     result: list[dict[str, Any]] = []
     seen_slippage = False
+    consumed_ledger_keys: set[tuple[str, str, str]] = set()
     for row in costs.itertuples(index=False):
         component = str(row.cost_type)
         if component not in _LEDGER_COST_COMPONENTS:
@@ -355,9 +361,11 @@ def _cost_records(
         if amount < 0:
             raise V2AttributionError("costs.amount必须是非负费用绝对值")
         ledger_type = "funding" if component == "funding" else "fee"
-        cash_amount = cash_by_reference.get((str(row.cost_id), ledger_type, str(row.currency)))
+        ledger_key = (str(row.cost_id), ledger_type, str(row.currency))
+        cash_amount = cash_by_reference.get(ledger_key)
         if cash_amount is None:
             raise V2AttributionError(f"costs.{row.cost_id}缺少对应的cash_ledger现金分录")
+        consumed_ledger_keys.add(ledger_key)
         if component == "funding":
             if abs(cash_amount) != amount:
                 raise V2AttributionError(f"funding {row.cost_id}与cash_ledger不精确相等")
@@ -410,6 +418,9 @@ def _cost_records(
         )
     if references is not None and not seen_slippage and not references.empty:
         raise V2AttributionError("提供slippage_references时必须有对应的slippage成本")
+    unmatched_ledger = sorted(set(cash_by_reference) - consumed_ledger_keys)
+    if unmatched_ledger:
+        raise V2AttributionError(f"cash_ledger存在未被costs解释的费用或资金分录: {unmatched_ledger}")
     return result
 
 
@@ -485,6 +496,13 @@ def _reconciliation_rows(
     by_account = _aggregate(records, ("event_time", "account_id"))
     by_strategy = _aggregate(records, ("event_time", "strategy_id"))
     by_instrument = _aggregate(records, ("event_time", "instrument_id"))
+    residual_records = [record for record in records if record["component"] == "residual"]
+    gross_residual_by_account: dict[tuple[pd.Timestamp, str], Decimal] = {}
+    for record in residual_records:
+        key = (record["event_time"], record["account_id"])
+        gross_residual_by_account[key] = gross_residual_by_account.get(key, Decimal(0)) + abs(
+            record["base_amount"]
+        )
     account_deltas = _snapshot_deltas(snapshots, base_currency)
     strategy_deltas = _strategy_deltas(returns, base_currency)
     rows: list[dict[str, Any]] = []
@@ -520,12 +538,20 @@ def _reconciliation_rows(
             }
         )
 
-    for key, expected in account_deltas.items():
+    for key in sorted(set(account_deltas) | set(by_account)):
+        expected = account_deltas.get(key, Decimal(0))
+        residual_limit = max(abs(expected) * Decimal("1e-8"), Decimal("0.01"))
+        if gross_residual_by_account.get(key, Decimal(0)) > residual_limit:
+            raise V2AttributionError(
+                f"account残差component超过阈值{residual_limit}: {key[1]}@{key[0].isoformat()}"
+            )
         append("account", key[0], key[1], expected, by_account.get(key, Decimal(0)))
     by_portfolio_expected: dict[pd.Timestamp, list[Decimal]] = {}
     for (event_time, _), delta in account_deltas.items():
         by_portfolio_expected.setdefault(event_time, []).append(delta)
-    for event_time, deltas in by_portfolio_expected.items():
+    portfolio_times = set(by_portfolio_expected) | {event_time for event_time, _ in by_account}
+    for event_time in sorted(portfolio_times):
+        deltas = by_portfolio_expected.get(event_time, [])
         append(
             "portfolio",
             event_time,
@@ -535,8 +561,14 @@ def _reconciliation_rows(
                 [amount for (time, _), amount in by_account.items() if time == event_time]
             ),
         )
-    for key, expected in strategy_deltas.items():
-        append("strategy", key[0], key[1], expected, by_strategy.get(key, Decimal(0)))
+    for key in sorted(set(strategy_deltas) | set(by_strategy)):
+        append(
+            "strategy",
+            key[0],
+            key[1],
+            strategy_deltas.get(key, Decimal(0)),
+            by_strategy.get(key, Decimal(0)),
+        )
     for (event_time, instrument_id), amount in sorted(
         by_instrument.items(), key=lambda item: item[0]
     ):
@@ -929,9 +961,16 @@ def attribute_standard_run(
     classifications: pd.DataFrame | None = None,
     out_dir: str | Path | None = None,
     allow_same_day_positions: bool = False,
-) -> AttributionManifest:
-    """Read schema-v1 standard artifacts and persist a reproducible attribution bundle."""
+    slippage_references: pd.DataFrame | None = None,
+) -> AttributionManifest | V2AttributionManifest:
+    """Prefer an intact v2 run and fall back to v1 only when v2 does not exist."""
     run_path = Path(run_dir)
+    if (run_path / "standard" / "v2").exists():
+        return reconcile_standard_run_v2(
+            run_path,
+            out_dir=out_dir,
+            slippage_references=slippage_references,
+        )
     standard = run_path / "standard"
     required = ["run_manifest.json", "positions.csv", "returns.csv", "costs.csv"]
     missing = [name for name in required if not (standard / name).is_file()]

@@ -451,6 +451,32 @@ def test_residual_exceeding_threshold_fails_publication(tmp_path: Path):
         _run_and_read(run)
 
 
+def test_source_residual_cannot_mask_an_unexplained_nav_change(tmp_path: Path):
+    run = tmp_path / "masked-residual"
+    _write_run(
+        run,
+        source=[_source_row("price", 2), _source_row("residual", 1)],
+        costs=[("commission", 1, "fill-1")],
+        nav_delta=2,
+    )
+    with pytest.raises(V2AttributionError, match="残差component超过阈值"):
+        _run_and_read(run)
+
+
+def test_attribution_outside_a_nav_interval_is_not_silently_ignored(tmp_path: Path):
+    run = tmp_path / "extra-interval"
+    extra = _source_row("carry", 1)
+    extra["event_time"] = T0
+    _write_run(
+        run,
+        source=[extra, _source_row("price", 11)],
+        costs=[("commission", 1, "fill-1")],
+        nav_delta=10,
+    )
+    with pytest.raises(V2AttributionError, match="account归因残差"):
+        _run_and_read(run)
+
+
 def test_cost_currency_and_scale_mismatch_fails_exact_reconciliation(tmp_path: Path):
     run = tmp_path / "bad-cost"
     _write_run(
@@ -477,6 +503,22 @@ def test_v2_hash_corruption_never_falls_back_to_v1(tmp_path: Path):
     metrics.write_text(json.dumps({"mutated": True}), encoding="utf-8")
     with pytest.raises(ValueError, match="mutated"):
         _run_and_read(run)
+    with pytest.raises(ValueError, match="mutated"):
+        v2.attribute_standard_run(run, pd.DataFrame(), out_dir=run / "auto-report")
+
+
+def test_public_attribution_entry_prefers_v2_when_v1_also_exists(tmp_path: Path):
+    run = tmp_path / "dual-read"
+    _write_run(
+        run,
+        source=[_source_row("price", 11)],
+        costs=[("commission", 1, "fill-1")],
+        nav_delta=10,
+        include_v1=True,
+    )
+    result = v2.attribute_standard_run(run, pd.DataFrame(), out_dir=run / "preferred-report")
+    assert isinstance(result, v2.V2AttributionManifest)
+    assert result.source_schema_version == "2.0.0"
 
 
 def test_duplicate_primary_key_is_rejected_before_consumer_can_read(tmp_path: Path):
@@ -529,6 +571,10 @@ def test_fixed_point_and_time_guards_reject_imprecise_or_non_utc_inputs():
     with pytest.raises(V2AttributionError):
         v2._decimal_from_fixed(True, 2, "amount")
     with pytest.raises(V2AttributionError):
+        v2._decimal_from_fixed(1.2, 2, "amount")
+    with pytest.raises(V2AttributionError):
+        v2._decimal_from_fixed(1, 2.5, "amount")
+    with pytest.raises(V2AttributionError):
         v2._decimal_from_fixed(1, 19, "amount")
     with pytest.raises(V2AttributionError):
         v2._fixed_from_decimal(v2.Decimal("0.001"), 2)
@@ -569,6 +615,10 @@ def test_source_component_and_reference_validation_guards(tmp_path: Path):
     bad_multiplier.loc[0, "multiplier_units"] = 0
     with pytest.raises(V2AttributionError, match="必须为正"):
         v2._reference_slippage(frames["fills"], bad_multiplier, BASE)
+    bad_side = frames["fills"].copy()
+    bad_side.loc[0, "side"] = "unknown"
+    with pytest.raises(V2AttributionError, match="buy或sell"):
+        v2._reference_slippage(bad_side, _references(), BASE)
 
 
 def test_cost_ledger_and_nonbase_currency_validation_guards(tmp_path: Path):
@@ -593,6 +643,25 @@ def test_cost_ledger_and_nonbase_currency_validation_guards(tmp_path: Path):
     impact.loc[0, "cost_type"] = "market_impact"
     with pytest.raises(V2AttributionError, match="market_impact_model_version"):
         v2._cost_records(impact, frames["cash_ledger"], source, frames["fills"], None, BASE, {})
+    extra_ledger = pd.concat(
+        [
+            frames["cash_ledger"],
+            pd.DataFrame(
+                [
+                    {
+                        **frames["cash_ledger"].iloc[0].to_dict(),
+                        "reference_id": "unexplained-fee",
+                        "transaction_id": "unexplained-txn",
+                    }
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
+    with pytest.raises(V2AttributionError, match="未被costs解释"):
+        v2._cost_records(
+            frames["costs"], extra_ledger, source, frames["fills"], None, BASE, {}
+        )
 
 
 def test_report_destination_is_immutable_and_v1_is_not_a_v2_input(tmp_path: Path):
