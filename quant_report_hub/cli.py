@@ -1,4 +1,5 @@
 """Command-line entry for quant-report-hub."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from quant_report_hub.attribution import attribute_standard_run
+from quant_report_hub.attribution import attribute_standard_run, reconcile_standard_run_v2
 from quant_report_hub.config import VizConfig, plot_groups_for
 from quant_report_hub.context import CompareContext, PlotContext
 from quant_report_hub.plots.registry import run_compare, run_plots
@@ -95,8 +96,24 @@ def _cmd_attribute(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_reconcile_v2(args: argparse.Namespace) -> int:
+    references = pd.read_csv(args.slippage_references) if args.slippage_references else None
+    manifest = reconcile_standard_run_v2(
+        args.run_dir,
+        out_dir=args.out_dir or None,
+        slippage_references=references,
+    )
+    destination = (
+        Path(args.out_dir) if args.out_dir else Path(args.run_dir) / "reports" / "attribution-v2"
+    )
+    print(f"reconciled {sum(manifest.row_counts.values())} rows from standard/v2 -> {destination}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="quant-report", description="Quant research output visualization hub")
+    p = argparse.ArgumentParser(
+        prog="quant-report", description="Quant research output visualization hub"
+    )
     sub = p.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="Generate charts for one run")
@@ -130,6 +147,19 @@ def build_parser() -> argparse.ArgumentParser:
     attribution.add_argument("--out-dir", default="")
     attribution.add_argument("--allow-same-day-positions", action="store_true")
     attribution.set_defaults(func=_cmd_attribute)
+
+    reconcile = sub.add_parser(
+        "reconcile-v2",
+        help="严格加载standard/v2并发布跨资产精确归因报告",
+    )
+    reconcile.add_argument("--run-dir", required=True)
+    reconcile.add_argument("--out-dir", default="")
+    reconcile.add_argument(
+        "--slippage-references",
+        default="",
+        help="包含因果reference价格、可得时间、乘数及FX的CSV；存在slippage成本时必填",
+    )
+    reconcile.set_defaults(func=_cmd_reconcile_v2)
     return p
 
 

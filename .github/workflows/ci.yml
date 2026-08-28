@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -29,3 +29,6 @@ jobs:
 
       - name: Pytest
         run: pytest -q
+
+      - name: Attribution branch coverage
+        run: coverage report --include=quant_report_hub/attribution.py --fail-under=90
