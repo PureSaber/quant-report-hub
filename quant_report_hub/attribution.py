@@ -5,10 +5,754 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass
+from decimal import Decimal
+from operator import index
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
+
+CONTROLLED_COMPONENTS = frozenset(
+    {
+        "price",
+        "carry",
+        "funding",
+        "roll",
+        "fx",
+        "commission",
+        "tax",
+        "maker_fee",
+        "taker_fee",
+        "slippage",
+        "market_impact",
+        "financing",
+        "residual",
+    }
+)
+_LEDGER_COST_COMPONENTS = frozenset(
+    {
+        "commission",
+        "tax",
+        "maker_fee",
+        "taker_fee",
+        "slippage",
+        "market_impact",
+        "financing",
+        "funding",
+    }
+)
+_NON_COST_COMPONENTS = CONTROLLED_COMPONENTS - _LEDGER_COST_COMPONENTS
+_REPORT_SCALE = 18
+
+
+class V2AttributionError(ValueError):
+    """Raised when a strict v2 accounting or causality invariant is violated."""
+
+
+@dataclass(frozen=True)
+class V2AttributionManifest:
+    """Immutable description of one separately-published v2 reconciliation report."""
+
+    schema_version: str
+    source_run_manifest_sha256: str
+    source_run_id: str
+    source_schema_version: str
+    base_currency: str
+    files: dict[str, str]
+    row_counts: dict[str, int]
+    reconciliation: dict[str, int]
+
+
+def _decimal_from_fixed(units: Any, scale: Any, field: str) -> Decimal:
+    if isinstance(units, bool) or isinstance(scale, bool):
+        raise V2AttributionError(f"{field}的units/scale必须是整数")
+    try:
+        integer_units = index(units)
+        integer_scale = index(scale)
+    except TypeError as exc:
+        raise V2AttributionError(f"{field}的units/scale无效") from exc
+    if integer_scale < 0 or integer_scale > 18:
+        raise V2AttributionError(f"{field}的scale必须在0到18之间")
+    return Decimal(integer_units).scaleb(-integer_scale)
+
+
+def _fixed_from_decimal(value: Decimal, scale: int = _REPORT_SCALE) -> tuple[int, int]:
+    if not value.is_finite():
+        raise V2AttributionError("归因金额必须是有限Decimal")
+    scaled = value.scaleb(scale)
+    integral = scaled.to_integral_value()
+    if scaled != integral:
+        raise V2AttributionError(f"金额{value}不能精确表示为scale={scale}")
+    return int(integral), scale
+
+
+def _parse_utc(value: Any, field: str) -> pd.Timestamp:
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise V2AttributionError(f"{field}必须包含UTC时区")
+    if timestamp.utcoffset().total_seconds() != 0:
+        raise V2AttributionError(f"{field}必须为UTC")
+    return timestamp.tz_convert("UTC")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_validated_v2(run_dir: str | Path):
+    """Load only an intact v2 run; the QLab reader deliberately never downgrades corruption."""
+    from quant_lab import load_and_validate_standard_run
+    from quant_lab.contracts_v2 import RunManifestV2
+
+    run_path = Path(run_dir)
+    manifest = load_and_validate_standard_run(run_path)
+    if not isinstance(manifest, RunManifestV2):
+        raise V2AttributionError("M5精确归因只接受完整的standard/v2运行产物")
+    base = run_path / "standard" / "v2"
+    records = {record.name: record for record in manifest.artifacts}
+    frames: dict[str, pd.DataFrame] = {}
+    for name, record in records.items():
+        if record.path.endswith(".parquet"):
+            frames[name] = pd.read_parquet(base / record.path)
+    return run_path, manifest, frames, _sha256(base / "run_manifest.json")
+
+
+def _require_frame_columns(frame: pd.DataFrame, name: str, columns: set[str]) -> None:
+    missing = sorted(columns - set(frame.columns))
+    if missing:
+        raise V2AttributionError(f"{name}缺少字段: {missing}")
+
+
+def _decimal_sum(values: list[Decimal]) -> Decimal:
+    return sum(values, Decimal(0))
+
+
+def _key_time(value: Any) -> str:
+    return _parse_utc(value, "event_time").isoformat()
+
+
+def _component_record(
+    *,
+    event_time: Any,
+    account_id: str,
+    strategy_id: str,
+    instrument_id: str,
+    component: str,
+    currency: str,
+    amount: Decimal,
+    base_currency: str,
+    base_amount: Decimal,
+) -> dict[str, Any]:
+    if component not in CONTROLLED_COMPONENTS:
+        raise V2AttributionError(f"不受支持的归因component: {component}")
+    return {
+        "event_time": _parse_utc(event_time, "attribution.event_time"),
+        "account_id": str(account_id),
+        "strategy_id": str(strategy_id),
+        "instrument_id": str(instrument_id),
+        "component": component,
+        "currency": str(currency),
+        "amount": amount,
+        "base_currency": str(base_currency),
+        "base_amount": base_amount,
+    }
+
+
+def _source_components(frame: pd.DataFrame, base_currency: str) -> list[dict[str, Any]]:
+    if frame.empty:
+        return []
+    _require_frame_columns(
+        frame,
+        "attribution",
+        {
+            "event_time",
+            "account_id",
+            "strategy_id",
+            "instrument_id",
+            "component",
+            "amount_units",
+            "amount_scale",
+            "currency",
+            "base_amount_units",
+            "base_amount_scale",
+            "base_currency",
+        },
+    )
+    records: list[dict[str, Any]] = []
+    for row in frame.itertuples(index=False):
+        if row.component not in CONTROLLED_COMPONENTS:
+            raise V2AttributionError(f"attribution包含未冻结component: {row.component}")
+        if row.base_currency != base_currency:
+            raise V2AttributionError("attribution.base_currency必须等于运行的base_currency")
+        amount = _decimal_from_fixed(row.amount_units, row.amount_scale, "attribution.amount")
+        base_amount = _decimal_from_fixed(
+            row.base_amount_units, row.base_amount_scale, "attribution.base_amount"
+        )
+        if row.currency == base_currency and amount != base_amount:
+            raise V2AttributionError("基础币种归因的amount与base_amount必须精确相等")
+        records.append(
+            _component_record(
+                event_time=row.event_time,
+                account_id=row.account_id,
+                strategy_id=row.strategy_id,
+                instrument_id=row.instrument_id,
+                component=row.component,
+                currency=row.currency,
+                amount=amount,
+                base_currency=row.base_currency,
+                base_amount=base_amount,
+            )
+        )
+    return records
+
+
+def _ledger_cash_by_reference(ledger: pd.DataFrame) -> dict[tuple[str, str, str], Decimal]:
+    _require_frame_columns(
+        ledger,
+        "cash_ledger",
+        {
+            "reference_id",
+            "event_type",
+            "ledger_account",
+            "currency",
+            "amount_units",
+            "amount_scale",
+        },
+    )
+    totals: dict[tuple[str, str, str], list[Decimal]] = {}
+    for row in ledger.itertuples(index=False):
+        if row.event_type not in {"fee", "funding"} or row.ledger_account != "assets:cash":
+            continue
+        key = (str(row.reference_id), str(row.event_type), str(row.currency))
+        totals.setdefault(key, []).append(
+            _decimal_from_fixed(row.amount_units, row.amount_scale, "cash_ledger.amount")
+        )
+    return {key: _decimal_sum(values) for key, values in totals.items()}
+
+
+def _reference_slippage(
+    fills: pd.DataFrame,
+    references: pd.DataFrame | None,
+    base_currency: str,
+) -> dict[str, tuple[Decimal, Decimal]]:
+    """Return exact native/base slippage costs keyed by fill_id from causal references."""
+    if references is None:
+        return {}
+    required = {
+        "fill_id",
+        "reference_time",
+        "available_at",
+        "reference_price_units",
+        "reference_price_scale",
+        "multiplier_units",
+        "multiplier_scale",
+        "fx_rate_units",
+        "fx_rate_scale",
+        "base_currency",
+    }
+    _require_frame_columns(references, "slippage_references", required)
+    if references.duplicated(["fill_id"]).any():
+        raise V2AttributionError("slippage_references.fill_id必须唯一")
+    _require_frame_columns(
+        fills,
+        "fills",
+        {
+            "fill_id",
+            "event_time",
+            "side",
+            "quantity_units",
+            "quantity_scale",
+            "price_units",
+            "price_scale",
+        },
+    )
+    indexed = references.set_index("fill_id", drop=False)
+    result: dict[str, tuple[Decimal, Decimal]] = {}
+    for fill in fills.itertuples(index=False):
+        if fill.fill_id not in indexed.index:
+            continue
+        ref = indexed.loc[fill.fill_id]
+        fill_time = _parse_utc(fill.event_time, "fills.event_time")
+        if (
+            _parse_utc(ref.reference_time, "reference_time") > fill_time
+            or _parse_utc(ref.available_at, "available_at") > fill_time
+        ):
+            raise V2AttributionError("slippage reference在成交后才可得，违反PIT因果性")
+        if ref.base_currency != base_currency:
+            raise V2AttributionError("slippage reference的base_currency不匹配")
+        quantity = _decimal_from_fixed(fill.quantity_units, fill.quantity_scale, "fills.quantity")
+        fill_price = _decimal_from_fixed(fill.price_units, fill.price_scale, "fills.price")
+        reference_price = _decimal_from_fixed(
+            ref.reference_price_units, ref.reference_price_scale, "reference_price"
+        )
+        multiplier = _decimal_from_fixed(ref.multiplier_units, ref.multiplier_scale, "multiplier")
+        fx_rate = _decimal_from_fixed(ref.fx_rate_units, ref.fx_rate_scale, "fx_rate")
+        if fill.side not in {"buy", "sell"}:
+            raise V2AttributionError("fills.side必须为buy或sell")
+        if quantity <= 0 or fill_price <= 0 or reference_price <= 0:
+            raise V2AttributionError("成交数量、成交价与reference价格必须为正")
+        if multiplier <= 0 or fx_rate <= 0:
+            raise V2AttributionError("slippage reference的multiplier与fx_rate必须为正")
+        direction = Decimal(1) if fill.side == "buy" else Decimal(-1)
+        native_cost = direction * (fill_price - reference_price) * quantity * multiplier
+        if native_cost < 0:
+            raise V2AttributionError("slippage reference给出了有利成交，不能记为成本")
+        result[str(fill.fill_id)] = (native_cost, native_cost * fx_rate)
+    return result
+
+
+def _cost_records(
+    costs: pd.DataFrame,
+    ledger: pd.DataFrame,
+    source: list[dict[str, Any]],
+    fills: pd.DataFrame,
+    references: pd.DataFrame | None,
+    base_currency: str,
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    _require_frame_columns(
+        costs,
+        "costs",
+        {
+            "event_time",
+            "cost_id",
+            "account_id",
+            "strategy_id",
+            "instrument_id",
+            "fill_id",
+            "cost_type",
+            "amount_units",
+            "amount_scale",
+            "currency",
+        },
+    )
+    cash_by_reference = _ledger_cash_by_reference(ledger)
+    slippage_by_fill = _reference_slippage(fills, references, base_currency)
+    source_costs: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = {}
+    for record in source:
+        if record["component"] in _LEDGER_COST_COMPONENTS:
+            key = (
+                record["event_time"].isoformat(),
+                record["account_id"],
+                record["strategy_id"],
+                record["instrument_id"],
+                record["component"],
+                record["currency"],
+            )
+            source_costs.setdefault(key, []).append(record)
+
+    result: list[dict[str, Any]] = []
+    seen_slippage = False
+    consumed_ledger_keys: set[tuple[str, str, str]] = set()
+    for row in costs.itertuples(index=False):
+        component = str(row.cost_type)
+        if component not in _LEDGER_COST_COMPONENTS:
+            raise V2AttributionError(f"costs.cost_type未被M5受控: {component}")
+        if component == "market_impact" and not config.get("market_impact_model_version"):
+            raise V2AttributionError("market_impact必须声明冻结的market_impact_model_version")
+        amount = _decimal_from_fixed(row.amount_units, row.amount_scale, "costs.amount")
+        if amount < 0:
+            raise V2AttributionError("costs.amount必须是非负费用绝对值")
+        ledger_type = "funding" if component == "funding" else "fee"
+        ledger_key = (str(row.cost_id), ledger_type, str(row.currency))
+        cash_amount = cash_by_reference.get(ledger_key)
+        if cash_amount is None:
+            raise V2AttributionError(f"costs.{row.cost_id}缺少对应的cash_ledger现金分录")
+        consumed_ledger_keys.add(ledger_key)
+        if component == "funding":
+            if abs(cash_amount) != amount:
+                raise V2AttributionError(f"funding {row.cost_id}与cash_ledger不精确相等")
+            signed_amount = cash_amount
+        else:
+            if cash_amount != -amount:
+                raise V2AttributionError(f"费用{row.cost_id}与cash_ledger不精确相等")
+            signed_amount = -amount
+        if component == "slippage":
+            seen_slippage = True
+            if pd.isna(row.fill_id) or str(row.fill_id) not in slippage_by_fill:
+                raise V2AttributionError("slippage必须具备同一fill_id的因果reference")
+            expected_native, _ = slippage_by_fill[str(row.fill_id)]
+            if amount != expected_native:
+                raise V2AttributionError("slippage成本与因果reference/fill价格不精确一致")
+        key = (
+            _key_time(row.event_time),
+            str(row.account_id),
+            str(row.strategy_id),
+            str(row.instrument_id),
+            component,
+            str(row.currency),
+        )
+        matching_source = source_costs.get(key, [])
+        if row.currency == base_currency:
+            base_amount = signed_amount
+        else:
+            if not matching_source:
+                raise V2AttributionError("非基础币种成本必须提供对应的base_amount归因明细")
+            if _decimal_sum([item["amount"] for item in matching_source]) != signed_amount:
+                raise V2AttributionError("非基础币种attribution成本金额与现金账本不一致")
+            base_amount = _decimal_sum([item["base_amount"] for item in matching_source])
+        result.append(
+            _component_record(
+                event_time=row.event_time,
+                account_id=row.account_id,
+                strategy_id=row.strategy_id,
+                instrument_id=row.instrument_id,
+                component=component,
+                currency=row.currency,
+                amount=signed_amount,
+                base_currency=base_currency,
+                base_amount=base_amount,
+            )
+        )
+    if references is not None and not seen_slippage and not references.empty:
+        raise V2AttributionError("提供slippage_references时必须有对应的slippage成本")
+    unmatched_ledger = sorted(set(cash_by_reference) - consumed_ledger_keys)
+    if unmatched_ledger:
+        raise V2AttributionError(f"cash_ledger存在未被costs解释的费用或资金分录: {unmatched_ledger}")
+    generated_costs: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = {}
+    for record in result:
+        key = (
+            record["event_time"].isoformat(),
+            record["account_id"],
+            record["strategy_id"],
+            record["instrument_id"],
+            record["component"],
+            record["currency"],
+        )
+        generated_costs.setdefault(key, []).append(record)
+    for key, source_records in source_costs.items():
+        generated_records = generated_costs.get(key)
+        if not generated_records:
+            raise V2AttributionError(f"attribution成本component缺少costs/cash_ledger依据: {key}")
+        if _decimal_sum([record["amount"] for record in source_records]) != _decimal_sum(
+            [record["amount"] for record in generated_records]
+        ) or _decimal_sum([record["base_amount"] for record in source_records]) != _decimal_sum(
+            [record["base_amount"] for record in generated_records]
+        ):
+            raise V2AttributionError("attribution成本component与costs/cash_ledger聚合金额不一致")
+    return result
+
+
+def _aggregate(
+    records: list[dict[str, Any]], keys: tuple[str, ...]
+) -> dict[tuple[Any, ...], Decimal]:
+    result: dict[tuple[Any, ...], list[Decimal]] = {}
+    for record in records:
+        key = tuple(record[key] for key in keys)
+        result.setdefault(key, []).append(record["base_amount"])
+    return {key: _decimal_sum(values) for key, values in result.items()}
+
+
+def _detail_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for row in frame.itertuples(index=False):
+        records.append(
+            {
+                "event_time": _parse_utc(row.event_time, "report.event_time"),
+                "account_id": str(row.account_id),
+                "strategy_id": str(row.strategy_id),
+                "instrument_id": str(row.instrument_id),
+                "component": str(row.component),
+                "base_amount": _decimal_from_fixed(
+                    row.base_amount_units, row.base_amount_scale, "report.base_amount"
+                ),
+            }
+        )
+    return records
+
+
+def _traceable_instruments(frames: dict[str, pd.DataFrame]) -> set[str]:
+    traceable: set[str] = set()
+    for name in ("positions", "fills", "costs", "margin", "orders"):
+        frame = frames.get(name)
+        if frame is not None and "instrument_id" in frame.columns:
+            traceable.update(str(value) for value in frame["instrument_id"].dropna())
+    return traceable
+
+
+def _snapshot_deltas(
+    snapshots: pd.DataFrame, base_currency: str
+) -> dict[tuple[pd.Timestamp, str], Decimal]:
+    _require_frame_columns(
+        snapshots,
+        "portfolio_snapshots",
+        {"event_time", "account_id", "base_currency", "nav_units", "nav_scale"},
+    )
+    expected: dict[tuple[pd.Timestamp, str], Decimal] = {}
+    for account_id, group in snapshots.groupby("account_id", sort=True):
+        ordered = group.copy()
+        ordered["_time"] = ordered["event_time"].map(
+            lambda value: _parse_utc(value, "snapshot.event_time")
+        )
+        ordered = ordered.sort_values("_time", kind="stable")
+        if not ordered["base_currency"].eq(base_currency).all():
+            raise V2AttributionError("portfolio_snapshots.base_currency不一致")
+        prior: Decimal | None = None
+        for _, row in ordered.iterrows():
+            nav = _decimal_from_fixed(row["nav_units"], row["nav_scale"], "portfolio_snapshots.nav")
+            if prior is not None:
+                expected[(row["_time"], str(account_id))] = nav - prior
+            prior = nav
+    return expected
+
+
+def _strategy_deltas(
+    returns: pd.DataFrame, base_currency: str
+) -> dict[tuple[pd.Timestamp, str], Decimal]:
+    _require_frame_columns(
+        returns,
+        "returns",
+        {"event_time", "strategy_id", "nav_units", "nav_scale", "base_currency"},
+    )
+    expected: dict[tuple[pd.Timestamp, str], Decimal] = {}
+    for strategy_id, group in returns.groupby("strategy_id", sort=True):
+        ordered = group.copy()
+        ordered["_time"] = ordered["event_time"].map(
+            lambda value: _parse_utc(value, "returns.event_time")
+        )
+        ordered = ordered.sort_values("_time", kind="stable")
+        if not ordered["base_currency"].eq(base_currency).all():
+            raise V2AttributionError("returns.base_currency不一致")
+        prior: Decimal | None = None
+        for _, row in ordered.iterrows():
+            nav = _decimal_from_fixed(row["nav_units"], row["nav_scale"], "returns.nav")
+            if prior is not None:
+                expected[(row["_time"], str(strategy_id))] = nav - prior
+            prior = nav
+    return expected
+
+
+def _reconciliation_rows(
+    detail: pd.DataFrame,
+    snapshots: pd.DataFrame,
+    returns: pd.DataFrame,
+    base_currency: str,
+    instrument_expected: dict[tuple[pd.Timestamp, str], Decimal],
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Check account/portfolio NAV, strategy NAV and instrument component identities."""
+    records = _detail_records(detail)
+    by_account = _aggregate(records, ("event_time", "account_id"))
+    by_strategy = _aggregate(records, ("event_time", "strategy_id"))
+    by_instrument = _aggregate(records, ("event_time", "instrument_id"))
+    residual_records = [record for record in records if record["component"] == "residual"]
+    gross_residual_by_account: dict[tuple[pd.Timestamp, str], Decimal] = {}
+    for record in residual_records:
+        key = (record["event_time"], record["account_id"])
+        gross_residual_by_account[key] = gross_residual_by_account.get(key, Decimal(0)) + abs(
+            record["base_amount"]
+        )
+    account_deltas = _snapshot_deltas(snapshots, base_currency)
+    strategy_deltas = _strategy_deltas(returns, base_currency)
+    rows: list[dict[str, Any]] = []
+
+    def append(
+        level: str, event_time: pd.Timestamp, identity: str, expected: Decimal, actual: Decimal
+    ):
+        residual = expected - actual
+        threshold = max(abs(expected) * Decimal("1e-8"), Decimal("0.01"))
+        if abs(residual) > threshold:
+            raise V2AttributionError(
+                f"{level}归因残差{residual}超过阈值{threshold}: {identity}@{event_time.isoformat()}"
+            )
+        expected_units, expected_scale = _fixed_from_decimal(expected)
+        actual_units, actual_scale = _fixed_from_decimal(actual)
+        residual_units, residual_scale = _fixed_from_decimal(residual)
+        threshold_units, threshold_scale = _fixed_from_decimal(threshold)
+        rows.append(
+            {
+                "level": level,
+                "event_time": event_time.isoformat(),
+                "identity": identity,
+                "base_currency": base_currency,
+                "delta_nav_units": expected_units,
+                "delta_nav_scale": expected_scale,
+                "attributed_units": actual_units,
+                "attributed_scale": actual_scale,
+                "residual_units": residual_units,
+                "residual_scale": residual_scale,
+                "threshold_units": threshold_units,
+                "threshold_scale": threshold_scale,
+                "status": "pass",
+            }
+        )
+
+    for key in sorted(set(account_deltas) | set(by_account)):
+        expected = account_deltas.get(key, Decimal(0))
+        residual_limit = max(abs(expected) * Decimal("1e-8"), Decimal("0.01"))
+        if gross_residual_by_account.get(key, Decimal(0)) > residual_limit:
+            raise V2AttributionError(
+                f"account残差component超过阈值{residual_limit}: {key[1]}@{key[0].isoformat()}"
+            )
+        append("account", key[0], key[1], expected, by_account.get(key, Decimal(0)))
+    by_portfolio_expected: dict[pd.Timestamp, list[Decimal]] = {}
+    for (event_time, _), delta in account_deltas.items():
+        by_portfolio_expected.setdefault(event_time, []).append(delta)
+    portfolio_times = set(by_portfolio_expected) | {event_time for event_time, _ in by_account}
+    for event_time in sorted(portfolio_times):
+        deltas = by_portfolio_expected.get(event_time, [])
+        append(
+            "portfolio",
+            event_time,
+            "__portfolio__",
+            _decimal_sum(deltas),
+            _decimal_sum(
+                [amount for (time, _), amount in by_account.items() if time == event_time]
+            ),
+        )
+    for key in sorted(set(strategy_deltas) | set(by_strategy)):
+        append(
+            "strategy",
+            key[0],
+            key[1],
+            strategy_deltas.get(key, Decimal(0)),
+            by_strategy.get(key, Decimal(0)),
+        )
+    for key in sorted(set(instrument_expected) | set(by_instrument)):
+        append(
+            "instrument",
+            key[0],
+            key[1],
+            instrument_expected.get(key, Decimal(0)),
+            by_instrument.get(key, Decimal(0)),
+        )
+    if not rows:
+        raise V2AttributionError("没有可用于区间归因的连续NAV快照")
+    frame = pd.DataFrame(rows).sort_values(["event_time", "level", "identity"], kind="stable")
+    counts = {level: int((frame["level"] == level).sum()) for level in frame["level"].unique()}
+    return frame.reset_index(drop=True), counts
+
+
+def _report_frame(records: list[dict[str, Any]]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        amount_units, amount_scale = _fixed_from_decimal(record["amount"])
+        base_units, base_scale = _fixed_from_decimal(record["base_amount"])
+        rows.append(
+            {
+                "event_time": record["event_time"].isoformat(),
+                "account_id": record["account_id"],
+                "strategy_id": record["strategy_id"],
+                "instrument_id": record["instrument_id"],
+                "component": record["component"],
+                "amount_units": amount_units,
+                "amount_scale": amount_scale,
+                "currency": record["currency"],
+                "base_amount_units": base_units,
+                "base_amount_scale": base_scale,
+                "base_currency": record["base_currency"],
+            }
+        )
+    return (
+        pd.DataFrame(
+            rows,
+            columns=[
+                "event_time",
+                "account_id",
+                "strategy_id",
+                "instrument_id",
+                "component",
+                "amount_units",
+                "amount_scale",
+                "currency",
+                "base_amount_units",
+                "base_amount_scale",
+                "base_currency",
+            ],
+        )
+        .sort_values(
+            ["event_time", "account_id", "strategy_id", "instrument_id", "component", "currency"],
+            kind="stable",
+        )
+        .reset_index(drop=True)
+    )
+
+
+def reconcile_standard_run_v2(
+    run_dir: str | Path,
+    *,
+    out_dir: str | Path | None = None,
+    slippage_references: pd.DataFrame | None = None,
+) -> V2AttributionManifest:
+    """Publish an exact, separately-stored M5 attribution report from an immutable v2 run.
+
+    The reader delegates all file, hash, schema and lineage checks to QLab before it opens a
+    Parquet file. v2 corruption therefore raises immediately and never reaches the v1 reader.
+    """
+    run_path, manifest, frames, source_hash = _read_validated_v2(run_dir)
+    required = {"returns", "portfolio_snapshots", "costs", "cash_ledger", "fills"}
+    missing = sorted(required - set(frames))
+    if missing:
+        raise V2AttributionError(f"M5归因需要的v2 Parquet产物缺失: {missing}")
+    config_path = run_path / "standard" / "v2" / "config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    source = _source_components(frames.get("attribution", pd.DataFrame()), manifest.base_currency)
+    traceable_instruments = _traceable_instruments(frames)
+    untraceable = sorted(
+        {
+            record["instrument_id"]
+            for record in source
+            if record["instrument_id"] not in traceable_instruments
+        }
+    )
+    if untraceable:
+        raise V2AttributionError(f"attribution包含无法追溯到v2来源产物的instrument: {untraceable}")
+    non_cost = [record for record in source if record["component"] in _NON_COST_COMPONENTS]
+    costs = _cost_records(
+        frames["costs"],
+        frames["cash_ledger"],
+        source,
+        frames["fills"],
+        slippage_references,
+        manifest.base_currency,
+        config,
+    )
+    records = non_cost + costs
+    if not records:
+        raise V2AttributionError("v2运行未提供任何可归因的价格、收益或成本组件")
+    instrument_expected = _aggregate(records, ("event_time", "instrument_id"))
+    detail = _report_frame(records)
+    reconciliation, level_counts = _reconciliation_rows(
+        detail,
+        frames["portfolio_snapshots"],
+        frames["returns"],
+        manifest.base_currency,
+        instrument_expected,
+    )
+    destination = Path(out_dir) if out_dir is not None else run_path / "reports" / "attribution-v2"
+    resolved_destination = destination.resolve(strict=False)
+    resolved_standard = (run_path / "standard").resolve(strict=False)
+    if resolved_destination == resolved_standard or resolved_standard in resolved_destination.parents:
+        raise V2AttributionError("归因报告目录不能位于源standard目录内部")
+    destination = resolved_destination
+    if destination.exists():
+        raise FileExistsError(f"归因报告目录已存在，拒绝改写: {destination}")
+    destination.mkdir(parents=True, exist_ok=False)
+    detail_path = destination / "attribution.csv"
+    reconciliation_path = destination / "reconciliation.csv"
+    detail.to_csv(detail_path, index=False, encoding="utf-8", lineterminator="\n")
+    reconciliation.to_csv(reconciliation_path, index=False, encoding="utf-8", lineterminator="\n")
+    files = {path.name: _sha256(path) for path in (detail_path, reconciliation_path)}
+    result = V2AttributionManifest(
+        schema_version="2.0",
+        source_run_manifest_sha256=source_hash,
+        source_run_id=manifest.run_id,
+        source_schema_version=manifest.schema_version,
+        base_currency=manifest.base_currency,
+        files=files,
+        row_counts={detail_path.name: len(detail), reconciliation_path.name: len(reconciliation)},
+        reconciliation=level_counts,
+    )
+    manifest_path = destination / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(asdict(result), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
 
 
 @dataclass(frozen=True)
@@ -274,14 +1018,6 @@ def brinson_fachler_attribution(
     return pd.concat(outputs, ignore_index=True)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def attribute_standard_run(
     run_dir: str | Path,
     asset_returns: pd.DataFrame,
@@ -291,9 +1027,16 @@ def attribute_standard_run(
     classifications: pd.DataFrame | None = None,
     out_dir: str | Path | None = None,
     allow_same_day_positions: bool = False,
-) -> AttributionManifest:
-    """Read schema-v1 standard artifacts and persist a reproducible attribution bundle."""
+    slippage_references: pd.DataFrame | None = None,
+) -> AttributionManifest | V2AttributionManifest:
+    """Prefer an intact v2 run and fall back to v1 only when v2 does not exist."""
     run_path = Path(run_dir)
+    if (run_path / "standard" / "v2").exists():
+        return reconcile_standard_run_v2(
+            run_path,
+            out_dir=out_dir,
+            slippage_references=slippage_references,
+        )
     standard = run_path / "standard"
     required = ["run_manifest.json", "positions.csv", "returns.csv", "costs.csv"]
     missing = [name for name in required if not (standard / name).is_file()]
