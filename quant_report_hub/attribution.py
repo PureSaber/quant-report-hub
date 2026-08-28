@@ -277,8 +277,6 @@ def _reference_slippage(
         if fill.fill_id not in indexed.index:
             continue
         ref = indexed.loc[fill.fill_id]
-        if isinstance(ref, pd.DataFrame):
-            raise V2AttributionError("slippage_references.fill_id必须唯一")
         fill_time = _parse_utc(fill.event_time, "fills.event_time")
         if (
             _parse_utc(ref.reference_time, "reference_time") > fill_time
@@ -392,11 +390,6 @@ def _cost_records(
         matching_source = source_costs.get(key, [])
         if row.currency == base_currency:
             base_amount = signed_amount
-            if (
-                matching_source
-                and _decimal_sum([item["base_amount"] for item in matching_source]) != base_amount
-            ):
-                raise V2AttributionError("attribution成本明细与costs/cash_ledger不精确一致")
         else:
             if not matching_source:
                 raise V2AttributionError("非基础币种成本必须提供对应的base_amount归因明细")
@@ -421,6 +414,27 @@ def _cost_records(
     unmatched_ledger = sorted(set(cash_by_reference) - consumed_ledger_keys)
     if unmatched_ledger:
         raise V2AttributionError(f"cash_ledger存在未被costs解释的费用或资金分录: {unmatched_ledger}")
+    generated_costs: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = {}
+    for record in result:
+        key = (
+            record["event_time"].isoformat(),
+            record["account_id"],
+            record["strategy_id"],
+            record["instrument_id"],
+            record["component"],
+            record["currency"],
+        )
+        generated_costs.setdefault(key, []).append(record)
+    for key, source_records in source_costs.items():
+        generated_records = generated_costs.get(key)
+        if not generated_records:
+            raise V2AttributionError(f"attribution成本component缺少costs/cash_ledger依据: {key}")
+        if _decimal_sum([record["amount"] for record in source_records]) != _decimal_sum(
+            [record["amount"] for record in generated_records]
+        ) or _decimal_sum([record["base_amount"] for record in source_records]) != _decimal_sum(
+            [record["base_amount"] for record in generated_records]
+        ):
+            raise V2AttributionError("attribution成本component与costs/cash_ledger聚合金额不一致")
     return result
 
 
@@ -432,6 +446,33 @@ def _aggregate(
         key = tuple(record[key] for key in keys)
         result.setdefault(key, []).append(record["base_amount"])
     return {key: _decimal_sum(values) for key, values in result.items()}
+
+
+def _detail_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for row in frame.itertuples(index=False):
+        records.append(
+            {
+                "event_time": _parse_utc(row.event_time, "report.event_time"),
+                "account_id": str(row.account_id),
+                "strategy_id": str(row.strategy_id),
+                "instrument_id": str(row.instrument_id),
+                "component": str(row.component),
+                "base_amount": _decimal_from_fixed(
+                    row.base_amount_units, row.base_amount_scale, "report.base_amount"
+                ),
+            }
+        )
+    return records
+
+
+def _traceable_instruments(frames: dict[str, pd.DataFrame]) -> set[str]:
+    traceable: set[str] = set()
+    for name in ("positions", "fills", "costs", "margin", "orders"):
+        frame = frames.get(name)
+        if frame is not None and "instrument_id" in frame.columns:
+            traceable.update(str(value) for value in frame["instrument_id"].dropna())
+    return traceable
 
 
 def _snapshot_deltas(
@@ -487,12 +528,14 @@ def _strategy_deltas(
 
 
 def _reconciliation_rows(
-    records: list[dict[str, Any]],
+    detail: pd.DataFrame,
     snapshots: pd.DataFrame,
     returns: pd.DataFrame,
     base_currency: str,
+    instrument_expected: dict[tuple[pd.Timestamp, str], Decimal],
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     """Check account/portfolio NAV, strategy NAV and instrument component identities."""
+    records = _detail_records(detail)
     by_account = _aggregate(records, ("event_time", "account_id"))
     by_strategy = _aggregate(records, ("event_time", "strategy_id"))
     by_instrument = _aggregate(records, ("event_time", "instrument_id"))
@@ -569,11 +612,14 @@ def _reconciliation_rows(
             strategy_deltas.get(key, Decimal(0)),
             by_strategy.get(key, Decimal(0)),
         )
-    for (event_time, instrument_id), amount in sorted(
-        by_instrument.items(), key=lambda item: item[0]
-    ):
-        # v2 has no per-instrument NAV field; the invariant is exact roll-up to its source components.
-        append("instrument", event_time, instrument_id, amount, amount)
+    for key in sorted(set(instrument_expected) | set(by_instrument)):
+        append(
+            "instrument",
+            key[0],
+            key[1],
+            instrument_expected.get(key, Decimal(0)),
+            by_instrument.get(key, Decimal(0)),
+        )
     if not rows:
         raise V2AttributionError("没有可用于区间归因的连续NAV快照")
     frame = pd.DataFrame(rows).sort_values(["event_time", "level", "identity"], kind="stable")
@@ -645,6 +691,16 @@ def reconcile_standard_run_v2(
     config_path = run_path / "standard" / "v2" / "config.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     source = _source_components(frames.get("attribution", pd.DataFrame()), manifest.base_currency)
+    traceable_instruments = _traceable_instruments(frames)
+    untraceable = sorted(
+        {
+            record["instrument_id"]
+            for record in source
+            if record["instrument_id"] not in traceable_instruments
+        }
+    )
+    if untraceable:
+        raise V2AttributionError(f"attribution包含无法追溯到v2来源产物的instrument: {untraceable}")
     non_cost = [record for record in source if record["component"] in _NON_COST_COMPONENTS]
     costs = _cost_records(
         frames["costs"],
@@ -658,11 +714,21 @@ def reconcile_standard_run_v2(
     records = non_cost + costs
     if not records:
         raise V2AttributionError("v2运行未提供任何可归因的价格、收益或成本组件")
-    reconciliation, level_counts = _reconciliation_rows(
-        records, frames["portfolio_snapshots"], frames["returns"], manifest.base_currency
-    )
+    instrument_expected = _aggregate(records, ("event_time", "instrument_id"))
     detail = _report_frame(records)
+    reconciliation, level_counts = _reconciliation_rows(
+        detail,
+        frames["portfolio_snapshots"],
+        frames["returns"],
+        manifest.base_currency,
+        instrument_expected,
+    )
     destination = Path(out_dir) if out_dir is not None else run_path / "reports" / "attribution-v2"
+    resolved_destination = destination.resolve(strict=False)
+    resolved_standard = (run_path / "standard").resolve(strict=False)
+    if resolved_destination == resolved_standard or resolved_standard in resolved_destination.parents:
+        raise V2AttributionError("归因报告目录不能位于源standard目录内部")
+    destination = resolved_destination
     if destination.exists():
         raise FileExistsError(f"归因报告目录已存在，拒绝改写: {destination}")
     destination.mkdir(parents=True, exist_ok=False)
