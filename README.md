@@ -71,8 +71,9 @@ quant-report attribute ^
 
 ### `standard/v2`精确归因与NAV对账
 
-`reconcile-v2`在运行目录外的独立报告目录发布`attribution.csv`、`reconciliation.csv`
-和带hash的`manifest.json`；它不改写历史`standard/v1`或不可变的`standard/v2`。
+`reconcile-v2`在`run/standard`之外的独立报告目录发布`attribution.csv`、
+`reconciliation.csv`和带hash的`manifest.json`；输出目录等于或位于`run/standard`
+之下时会直接拒绝发布，因此不会改写历史`standard/v1`或不可变的`standard/v2`。
 金额全程使用`units + scale`转换的`Decimal`，并在account、portfolio、strategy和instrument
 四层检查：
 
@@ -82,9 +83,11 @@ delta NAV = price + carry + funding + roll + fx
             - slippage - market_impact - financing + residual
 ```
 
-残差上限为`max(abs(deltaNAV)*1e-8,0.01基础币种单位)`。成本必须与`costs`及
-`cash_ledger`精确相等；若有slippage，则必须提供同一`fill_id`的因果reference CSV，包含
-`reference_time`、`available_at`、价格、合约乘数和FX快照。
+残差上限为`max(abs(deltaNAV)*1e-8,0.01基础币种单位)`。每个成本component必须在
+`costs`、`cash_ledger`和来源归因中按原币及基础币聚合后精确相等，任一侧多出、缺失或
+金额不符都会拒绝发布。instrument层对账只接受可从positions、fills、costs、margin或
+orders追溯的标的，并使用来源归因生成独立期望值；若有slippage，则必须提供同一
+`fill_id`的因果reference CSV，包含`reference_time`、`available_at`、价格、合约乘数和FX快照。
 
 ```bash
 quant-report reconcile-v2 ^

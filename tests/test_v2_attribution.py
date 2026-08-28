@@ -592,6 +592,21 @@ def test_source_component_and_reference_validation_guards(tmp_path: Path):
         run, source=[_source_row("price", 11)], costs=[("commission", 1, "fill-1")], nav_delta=10
     )
     _, _, frames, _ = v2._read_validated_v2(run)
+    with pytest.raises(V2AttributionError, match="缺少字段"):
+        v2._require_frame_columns(pd.DataFrame(), "empty", {"required"})
+    assert v2._source_components(pd.DataFrame(), BASE) == []
+    with pytest.raises(V2AttributionError, match="不受支持"):
+        v2._component_record(
+            event_time=T1,
+            account_id="acct-1",
+            strategy_id="alpha",
+            instrument_id="instrument-1",
+            component="unknown",
+            currency=BASE,
+            amount=v2.Decimal(0),
+            base_currency=BASE,
+            base_amount=v2.Decimal(0),
+        )
     source = frames["attribution"].copy()
     source.loc[0, "component"] = "unknown"
     with pytest.raises(V2AttributionError, match="未冻结"):
@@ -619,6 +634,17 @@ def test_source_component_and_reference_validation_guards(tmp_path: Path):
     bad_side.loc[0, "side"] = "unknown"
     with pytest.raises(V2AttributionError, match="buy或sell"):
         v2._reference_slippage(bad_side, _references(), BASE)
+    unmatched_fill = frames["fills"].copy()
+    unmatched_fill.loc[0, "fill_id"] = "not-referenced"
+    assert v2._reference_slippage(unmatched_fill, _references(), BASE) == {}
+    zero_quantity = frames["fills"].copy()
+    zero_quantity.loc[0, "quantity_units"] = 0
+    with pytest.raises(V2AttributionError, match="必须为正"):
+        v2._reference_slippage(zero_quantity, _references(), BASE)
+    favourable = _references()
+    favourable.loc[0, "reference_price_units"] = 102
+    with pytest.raises(V2AttributionError, match="有利成交"):
+        v2._reference_slippage(frames["fills"], favourable, BASE)
 
 
 def test_cost_ledger_and_nonbase_currency_validation_guards(tmp_path: Path):
@@ -662,6 +688,140 @@ def test_cost_ledger_and_nonbase_currency_validation_guards(tmp_path: Path):
         v2._cost_records(
             frames["costs"], extra_ledger, source, frames["fills"], None, BASE, {}
         )
+    negative = frames["costs"].copy()
+    negative.loc[0, "amount_units"] = -1
+    with pytest.raises(V2AttributionError, match="非负"):
+        v2._cost_records(negative, frames["cash_ledger"], source, frames["fills"], None, BASE, {})
+    fee_mismatch = frames["cash_ledger"].copy()
+    fee_mismatch.loc[fee_mismatch["ledger_account"].eq("assets:cash"), "amount_units"] = -2
+    with pytest.raises(V2AttributionError, match="不精确相等"):
+        v2._cost_records(
+            frames["costs"], fee_mismatch, source, frames["fills"], None, BASE, {}
+        )
+    funding_cost = frames["costs"].copy()
+    funding_cost.loc[0, "cost_type"] = "funding"
+    funding_ledger = frames["cash_ledger"].copy()
+    funding_ledger.loc[:, "event_type"] = "funding"
+    funding_ledger.loc[
+        funding_ledger["ledger_account"].eq("assets:cash"), "amount_units"
+    ] = -2
+    with pytest.raises(V2AttributionError, match="funding"):
+        v2._cost_records(
+            funding_cost, funding_ledger, source, frames["fills"], None, BASE, {}
+        )
+    slippage = frames["costs"].copy()
+    slippage.loc[0, "cost_type"] = "slippage"
+    slippage.loc[0, "amount_units"] = 2
+    slippage_ledger = frames["cash_ledger"].copy()
+    slippage_ledger.loc[
+        slippage_ledger["ledger_account"].eq("assets:cash"), "amount_units"
+    ] = -2
+    with pytest.raises(V2AttributionError, match="reference/fill"):
+        v2._cost_records(
+            slippage,
+            slippage_ledger,
+            source,
+            frames["fills"],
+            _references(),
+            BASE,
+            {},
+        )
+    with pytest.raises(V2AttributionError, match="必须有对应"):
+        v2._cost_records(
+            frames["costs"],
+            frames["cash_ledger"],
+            source,
+            frames["fills"],
+            _references(),
+            BASE,
+            {},
+        )
+    nonbase_ledger = frames["cash_ledger"].copy()
+    nonbase_ledger.loc[:, "currency"] = "CNY"
+    with pytest.raises(V2AttributionError, match="base_amount"):
+        v2._cost_records(nonbase, nonbase_ledger, source, frames["fills"], None, BASE, {})
+    mismatched_source = [
+        v2._component_record(
+            event_time=T1,
+            account_id="acct-1",
+            strategy_id="alpha",
+            instrument_id="instrument-1",
+            component="commission",
+            currency="CNY",
+            amount=v2.Decimal("-2"),
+            base_currency=BASE,
+            base_amount=v2.Decimal("-0.4"),
+        )
+    ]
+    with pytest.raises(V2AttributionError, match="金额与现金账本不一致"):
+        v2._cost_records(
+            nonbase,
+            nonbase_ledger,
+            mismatched_source,
+            frames["fills"],
+            None,
+            BASE,
+            {},
+        )
+
+
+def test_v2_report_rejects_source_mutation_and_untraceable_components(tmp_path: Path):
+    forbidden_run = tmp_path / "forbidden"
+    _write_run(
+        forbidden_run,
+        source=[_source_row("price", 11)],
+        costs=[("commission", 1, "fill-1")],
+        nav_delta=10,
+    )
+    for destination in (
+        forbidden_run / "standard" / "v2" / "injected-report",
+        forbidden_run / "standard" / "v2" / ".." / "traversal-report",
+    ):
+        with pytest.raises(V2AttributionError, match="standard"):
+            reconcile_standard_run_v2(forbidden_run, out_dir=destination)
+
+    unmatched = tmp_path / "unmatched-cost"
+    _write_run(
+        unmatched,
+        source=[_source_row("price", 11), _source_row("tax", -999)],
+        costs=[("commission", 1, "fill-1")],
+        nav_delta=10,
+    )
+    with pytest.raises(V2AttributionError, match="成本component"):
+        reconcile_standard_run_v2(unmatched, out_dir=tmp_path / "unmatched-report")
+
+    phantom = tmp_path / "phantom"
+    phantom_price = _source_row("price", 11)
+    phantom_price["instrument_id"] = "instrument-not-in-any-source-artifact"
+    _write_run(
+        phantom,
+        source=[phantom_price],
+        costs=[("commission", 1, "fill-1")],
+        nav_delta=10,
+    )
+    with pytest.raises(V2AttributionError, match="无法追溯"):
+        reconcile_standard_run_v2(phantom, out_dir=tmp_path / "phantom-report")
+
+
+def test_nav_delta_sources_reject_mixed_base_currencies(tmp_path: Path):
+    run = tmp_path / "mixed-base-currency"
+    _write_run(
+        run,
+        source=[_source_row("price", 11)],
+        costs=[("commission", 1, "fill-1")],
+        nav_delta=10,
+    )
+    _, _, frames, _ = v2._read_validated_v2(run)
+
+    snapshots = frames["portfolio_snapshots"].copy()
+    snapshots.loc[0, "base_currency"] = "CNY"
+    with pytest.raises(V2AttributionError, match="portfolio_snapshots.base_currency"):
+        v2._snapshot_deltas(snapshots, BASE)
+
+    returns = frames["returns"].copy()
+    returns.loc[0, "base_currency"] = "CNY"
+    with pytest.raises(V2AttributionError, match="returns.base_currency"):
+        v2._strategy_deltas(returns, BASE)
 
 
 def test_report_destination_is_immutable_and_v1_is_not_a_v2_input(tmp_path: Path):
