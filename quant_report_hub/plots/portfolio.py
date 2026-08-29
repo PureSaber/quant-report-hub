@@ -1,4 +1,5 @@
 """组合层图表：01, 02, 04, 05, 12, 13。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -24,7 +25,9 @@ def plot_01_nav_drawdown(ctx: PlotContext) -> Path | None:
         return None
     nav = portfolio_nav(port)
     dd = drawdown_additive(nav)
-    _fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=ctx.cfg.figsize_tall, gridspec_kw={"height_ratios": [3, 1]})
+    _fig, (ax1, ax2) = plt.subplots(
+        2, 1, sharex=True, figsize=ctx.cfg.figsize_tall, gridspec_kw={"height_ratios": [3, 1]}
+    )
     ax1.plot(port["date"], nav, color=NEU, lw=1.5)
     ax1.set_title(f"{ctx.run_id} — 组合净值")
     ax1.set_ylabel("净值")
@@ -93,7 +96,14 @@ def plot_05_activity(ctx: PlotContext) -> Path | None:
         ax2 = ax1.twinx()
         ax2.plot(port["date"], port["num_spreads"], color=NEG, lw=1.2, label="universe 套利对数")
         if active_spreads is not None:
-            ax2.plot(active_spreads.index, active_spreads.values, color=POS, lw=1.0, ls="--", label="当日活跃套利对")
+            ax2.plot(
+                active_spreads.index,
+                active_spreads.values,
+                color=POS,
+                lw=1.0,
+                ls="--",
+                label="当日活跃套利对",
+            )
         ax2.set_ylabel("套利对数")
         lines1, labels1 = ax1.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
@@ -111,7 +121,11 @@ def plot_12_monthly(ctx: PlotContext) -> Path | None:
     annual = port.groupby(port["date"].dt.year)["daily_pnl_pct"].sum().reset_index()
     annual.columns = ["year", "ret"]
     _fig, axes = plt.subplots(1, 3, figsize=(16, 4))
-    axes[0].bar(monthly["label"], monthly["ret"] * 100, color=[POS if v >= 0 else NEG for v in monthly["ret"]])
+    axes[0].bar(
+        monthly["label"],
+        monthly["ret"] * 100,
+        color=[POS if v >= 0 else NEG for v in monthly["ret"]],
+    )
     axes[0].set_title("月度收益率")
     axes[0].tick_params(axis="x", rotation=90)
     axes[0].set_ylabel("%")
@@ -121,7 +135,11 @@ def plot_12_monthly(ctx: PlotContext) -> Path | None:
         axes[1].set_title("月收益热力图 (%)")
     else:
         axes[1].text(0.5, 0.5, "数据不足", ha="center", va="center", transform=axes[1].transAxes)
-    axes[2].bar(annual["year"].astype(str), annual["ret"] * 100, color=[POS if v >= 0 else NEG for v in annual["ret"]])
+    axes[2].bar(
+        annual["year"].astype(str),
+        annual["ret"] * 100,
+        color=[POS if v >= 0 else NEG for v in annual["ret"]],
+    )
     axes[2].set_title("年度收益率")
     axes[2].set_ylabel("%")
     return save_ctx_plot(ctx, "12_monthly_returns.png")
@@ -132,7 +150,9 @@ def plot_13_rolling(ctx: PlotContext) -> Path | None:
     if not prepare_plot(port):
         return None
     nav = portfolio_nav(port)
-    fig, axes = plt.subplots(len(ctx.cfg.rolling_windows), 1, sharex=True, figsize=ctx.cfg.figsize_tall)
+    fig, axes = plt.subplots(
+        len(ctx.cfg.rolling_windows), 1, sharex=True, figsize=ctx.cfg.figsize_tall
+    )
     if len(ctx.cfg.rolling_windows) == 1:
         axes = [axes]
     for ax, w in zip(axes, ctx.cfg.rolling_windows):

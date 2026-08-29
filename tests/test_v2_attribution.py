@@ -685,9 +685,7 @@ def test_cost_ledger_and_nonbase_currency_validation_guards(tmp_path: Path):
         ignore_index=True,
     )
     with pytest.raises(V2AttributionError, match="未被costs解释"):
-        v2._cost_records(
-            frames["costs"], extra_ledger, source, frames["fills"], None, BASE, {}
-        )
+        v2._cost_records(frames["costs"], extra_ledger, source, frames["fills"], None, BASE, {})
     negative = frames["costs"].copy()
     negative.loc[0, "amount_units"] = -1
     with pytest.raises(V2AttributionError, match="非负"):
@@ -695,27 +693,19 @@ def test_cost_ledger_and_nonbase_currency_validation_guards(tmp_path: Path):
     fee_mismatch = frames["cash_ledger"].copy()
     fee_mismatch.loc[fee_mismatch["ledger_account"].eq("assets:cash"), "amount_units"] = -2
     with pytest.raises(V2AttributionError, match="不精确相等"):
-        v2._cost_records(
-            frames["costs"], fee_mismatch, source, frames["fills"], None, BASE, {}
-        )
+        v2._cost_records(frames["costs"], fee_mismatch, source, frames["fills"], None, BASE, {})
     funding_cost = frames["costs"].copy()
     funding_cost.loc[0, "cost_type"] = "funding"
     funding_ledger = frames["cash_ledger"].copy()
     funding_ledger.loc[:, "event_type"] = "funding"
-    funding_ledger.loc[
-        funding_ledger["ledger_account"].eq("assets:cash"), "amount_units"
-    ] = -2
+    funding_ledger.loc[funding_ledger["ledger_account"].eq("assets:cash"), "amount_units"] = -2
     with pytest.raises(V2AttributionError, match="funding"):
-        v2._cost_records(
-            funding_cost, funding_ledger, source, frames["fills"], None, BASE, {}
-        )
+        v2._cost_records(funding_cost, funding_ledger, source, frames["fills"], None, BASE, {})
     slippage = frames["costs"].copy()
     slippage.loc[0, "cost_type"] = "slippage"
     slippage.loc[0, "amount_units"] = 2
     slippage_ledger = frames["cash_ledger"].copy()
-    slippage_ledger.loc[
-        slippage_ledger["ledger_account"].eq("assets:cash"), "amount_units"
-    ] = -2
+    slippage_ledger.loc[slippage_ledger["ledger_account"].eq("assets:cash"), "amount_units"] = -2
     with pytest.raises(V2AttributionError, match="reference/fill"):
         v2._cost_records(
             slippage,
@@ -943,7 +933,9 @@ def test_legacy_attribution_optional_outputs_and_validation(tmp_path: Path):
 
 def test_reconcile_v2_cli_publishes_to_explicit_report_directory(tmp_path: Path):
     run = tmp_path / "cli"
-    _write_run(run, source=[_source_row("price", 11)], costs=[("commission", 1, "fill-1")], nav_delta=10)
+    _write_run(
+        run, source=[_source_row("price", 11)], costs=[("commission", 1, "fill-1")], nav_delta=10
+    )
     destination = tmp_path / "cli-report"
     assert main(["reconcile-v2", "--run-dir", str(run), "--out-dir", str(destination)]) == 0
     assert (destination / "manifest.json").is_file()

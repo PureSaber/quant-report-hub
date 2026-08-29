@@ -10,7 +10,7 @@ from quant_report_hub.attribution import (
     reconcile_standard_run_v2,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 __all__ = [
     "AttributionManifest",

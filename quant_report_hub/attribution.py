@@ -413,7 +413,9 @@ def _cost_records(
         raise V2AttributionError("提供slippage_references时必须有对应的slippage成本")
     unmatched_ledger = sorted(set(cash_by_reference) - consumed_ledger_keys)
     if unmatched_ledger:
-        raise V2AttributionError(f"cash_ledger存在未被costs解释的费用或资金分录: {unmatched_ledger}")
+        raise V2AttributionError(
+            f"cash_ledger存在未被costs解释的费用或资金分录: {unmatched_ledger}"
+        )
     generated_costs: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = {}
     for record in result:
         key = (
@@ -726,7 +728,10 @@ def reconcile_standard_run_v2(
     destination = Path(out_dir) if out_dir is not None else run_path / "reports" / "attribution-v2"
     resolved_destination = destination.resolve(strict=False)
     resolved_standard = (run_path / "standard").resolve(strict=False)
-    if resolved_destination == resolved_standard or resolved_standard in resolved_destination.parents:
+    if (
+        resolved_destination == resolved_standard
+        or resolved_standard in resolved_destination.parents
+    ):
         raise V2AttributionError("归因报告目录不能位于源standard目录内部")
     destination = resolved_destination
     if destination.exists():
