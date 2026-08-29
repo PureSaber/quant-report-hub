@@ -1,4 +1,5 @@
 """套利对 universe 图表：03, 07, 15。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,7 +40,9 @@ def plot_03_spread_nav(ctx: PlotContext) -> list[Path]:
             continue
         ax.plot(g["date"], g["nav"], lw=1.0, label=spread, alpha=0.85)
     if not port_nav.empty:
-        ax.plot(port_nav["date"], portfolio_nav(port_nav), color="black", lw=2.0, ls="--", label="组合")
+        ax.plot(
+            port_nav["date"], portfolio_nav(port_nav), color="black", lw=2.0, ls="--", label="组合"
+        )
     ax.set_title(f"{ctx.run_id} — Top/Bottom {n} 套利对净值")
     ax.legend(fontsize=7, ncol=2, loc="upper left")
     ax.set_xlabel("日期")
@@ -61,7 +64,9 @@ def plot_03_spread_nav(ctx: PlotContext) -> list[Path]:
             mdf = pd.concat(rows, ignore_index=True)
             mdf["ym"] = mdf["year"].astype(str) + "-" + mdf["month"].astype(str).str.zfill(2)
             pivot = mdf.pivot(index="spread", columns="ym", values="ret").fillna(0)
-            _fig, ax = plt.subplots(figsize=(max(10, pivot.shape[1] * 0.4), max(6, pivot.shape[0] * 0.3)))
+            _fig, ax = plt.subplots(
+                figsize=(max(10, pivot.shape[1] * 0.4), max(6, pivot.shape[0] * 0.3))
+            )
             sns.heatmap(pivot * 100, cmap="RdYlGn", center=0, ax=ax, linewidths=0.2)
             ax.set_title("Top 活跃套利对 — 月收益率 (%)")
             outputs.append(save_ctx_plot(ctx, "03_spread_monthly_heatmap.png"))
@@ -108,9 +113,16 @@ def plot_15_correlation(ctx: PlotContext) -> list[Path]:
     if len(picks) < 2:
         return outputs
 
-    wide = sym[sym["spread"].isin(picks)].pivot_table(
-        index="date", columns="spread", values="daily_pnl_pct", aggfunc="sum",
-    ).fillna(0)
+    wide = (
+        sym[sym["spread"].isin(picks)]
+        .pivot_table(
+            index="date",
+            columns="spread",
+            values="daily_pnl_pct",
+            aggfunc="sum",
+        )
+        .fillna(0)
+    )
     corr = wide.corr()
     _fig, ax = plt.subplots(figsize=(12, 10))
     sns.heatmap(corr, cmap="coolwarm", center=0, ax=ax, xticklabels=True, yticklabels=True)

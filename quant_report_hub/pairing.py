@@ -1,4 +1,5 @@
 """quant_report_hub/pairing.py — 将 fill 配对为 round-trip 交易。"""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -16,11 +17,21 @@ def pair_roundtrips(trades: pd.DataFrame) -> pd.DataFrame:
             open_price, close_price, volume, commission, gross_pnl, holding_minutes
     """
     if trades.empty:
-        return pd.DataFrame(columns=[
-            "instance_id", "spread", "direction", "open_time", "close_time",
-            "open_price", "close_price", "volume", "commission", "gross_pnl",
-            "holding_minutes",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "instance_id",
+                "spread",
+                "direction",
+                "open_time",
+                "close_time",
+                "open_price",
+                "close_price",
+                "volume",
+                "commission",
+                "gross_pnl",
+                "holding_minutes",
+            ]
+        )
 
     rows: list[dict] = []
     for (iid, spread), grp in trades.groupby(["instance_id", "spread"], sort=False):
@@ -52,25 +63,37 @@ def pair_roundtrips(trades: pd.DataFrame) -> pd.DataFrame:
             open_time = pd.Timestamp(op["open_time"])
             close_time = pd.Timestamp(row["datetime"])
             holding = max(0.0, (close_time - open_time).total_seconds() / 60.0)
-            rows.append({
-                "instance_id": iid,
-                "spread": spread,
-                "direction": op["direction"],
-                "open_time": open_time,
-                "close_time": close_time,
-                "open_price": op["open_price"],
-                "close_price": float(row["price"]),
-                "volume": vol,
-                "commission": op["open_commission"] + close_comm,
-                "gross_pnl": gross - op["open_commission"] - close_comm,
-                "holding_minutes": holding,
-            })
+            rows.append(
+                {
+                    "instance_id": iid,
+                    "spread": spread,
+                    "direction": op["direction"],
+                    "open_time": open_time,
+                    "close_time": close_time,
+                    "open_price": op["open_price"],
+                    "close_price": float(row["price"]),
+                    "volume": vol,
+                    "commission": op["open_commission"] + close_comm,
+                    "gross_pnl": gross - op["open_commission"] - close_comm,
+                    "holding_minutes": holding,
+                }
+            )
     if not rows:
-        return pd.DataFrame(columns=[
-            "instance_id", "spread", "direction", "open_time", "close_time",
-            "open_price", "close_price", "volume", "commission", "gross_pnl",
-            "holding_minutes",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "instance_id",
+                "spread",
+                "direction",
+                "open_time",
+                "close_time",
+                "open_price",
+                "close_price",
+                "volume",
+                "commission",
+                "gross_pnl",
+                "holding_minutes",
+            ]
+        )
     return pd.DataFrame(rows).sort_values("open_time").reset_index(drop=True)
 
 

@@ -1,4 +1,5 @@
 """诊断图表：08, 10, 11。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,21 +42,45 @@ def plot_08_zscore(ctx: PlotContext) -> list[Path]:
             continue
         prepare_plot()
         z = compute_zscore(bars["close"], lookback)
-        _fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 7), gridspec_kw={"height_ratios": [2, 1]})
+        _fig, (ax1, ax2) = plt.subplots(
+            2, 1, sharex=True, figsize=(12, 7), gridspec_kw={"height_ratios": [2, 1]}
+        )
         ax1.plot(bars["datetime"], bars["close"], color=NEU, lw=1)
         ax1.set_title(f"{spread} — 价差与 z-score")
         ax1.set_ylabel("comb 收盘价")
 
-        sig = ctx.signals[ctx.signals["symbol"] == spread] if not ctx.signals.empty else pd.DataFrame()
+        sig = (
+            ctx.signals[ctx.signals["symbol"] == spread]
+            if not ctx.signals.empty
+            else pd.DataFrame()
+        )
         tr = ctx.trades[ctx.trades["spread"] == spread] if not ctx.trades.empty else pd.DataFrame()
         if not sig.empty:
             entries = sig[sig["offset"] == "open"]
-            ax1.scatter(entries["action_datetime"], entries["price"], c=POS, s=20, label="entry", zorder=3)
+            ax1.scatter(
+                entries["action_datetime"], entries["price"], c=POS, s=20, label="entry", zorder=3
+            )
         if not tr.empty:
             opens = tr[tr["offset"].str.upper() == "OPEN"]
             closes = tr[tr["offset"].str.upper() == "CLOSE"]
-            ax1.scatter(opens["datetime"], opens["price"], marker="^", c=POS, s=40, label="fill open", zorder=4)
-            ax1.scatter(closes["datetime"], closes["price"], marker="v", c=NEG, s=40, label="fill close", zorder=4)
+            ax1.scatter(
+                opens["datetime"],
+                opens["price"],
+                marker="^",
+                c=POS,
+                s=40,
+                label="fill open",
+                zorder=4,
+            )
+            ax1.scatter(
+                closes["datetime"],
+                closes["price"],
+                marker="v",
+                c=NEG,
+                s=40,
+                label="fill close",
+                zorder=4,
+            )
         ax1.legend(fontsize=8)
 
         ax2.plot(bars["datetime"], z, color=NEU, lw=0.8)

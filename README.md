@@ -1,7 +1,7 @@
 # quant-report-hub
 
-`0.4.0`新增M5跨资产精确归因消费者。它只读取经`quant-lab v0.3.0`完整验证的
-`standard/v2`Parquet运行产物；检测到v2存在但hash、schema或血缘损坏时立即失败，绝不回退到v1。
+`0.4.1`将M5跨资产精确归因消费者纳入M6依赖治理。它只读取经`quant-lab v0.3.1`
+完整验证的`standard/v2`Parquet运行产物；检测到v2存在但hash、schema或血缘损坏时立即失败，绝不回退到v1。
 
 Unified visualization hub refactored from [spread-backtest-viz](../spread-backtest-viz). The original `spread-backtest-viz` repo is **not modified**; this project adds adapter-based support for equity research outputs.
 
@@ -11,8 +11,41 @@ Unified visualization hub refactored from [spread-backtest-viz](../spread-backte
 cd quant-report-hub
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e ".[dev]"
+python -m pip install --requirement requirements.lock
+python -m pip check
+python -m pip install --no-deps --no-build-isolation --editable .
+python -m pip check
 ```
+
+## 依赖与契约治理
+
+`pyproject.toml`的`[tool.quant-workspace]`声明本仓库属于`reporting`层：消费
+`standard/v2@2.0.0`和`puresaber.run-manifest@2.0.0`，并生产
+`quant-report-hub.attribution-report@2.0`（独立报告目录中的`manifest.json`、
+`attribution.csv`和`reconciliation.csv`）。`standard/v2`及其run manifest先由
+`quant-lab`校验hash、schema和血缘，报告代码随后才读取Parquet；因此输入契约损坏不会降级为v1。
+
+`requirements.lock`是运行时、开发和editable构建环境的唯一锁文件。所有PyPI依赖均精确
+固定；内部`quant-lab`在项目元数据中指向已发布的注释tag`v0.3.1`，在锁中固定其peeled
+commit`27489d270e132adbec1bced93eb2ae84ad5e1a9b`，禁止使用任何浮动分支。CI在Python3.10、
+3.11和3.12上均先按锁安装、执行前后`pip check`，再以`--no-deps --no-build-isolation`
+安装editable项目。
+
+重建锁文件时，使用干净环境运行：
+
+```bash
+pip-compile --allow-unsafe --build-deps-for=editable --extra=dev --output-file=requirements.lock --strip-extras pyproject.toml
+```
+
+随后将`requirements.lock`中的`quant-lab`URL恢复为上述commit固定形式，并保留`v0.3.1`
+注释和peeled commit；必须运行完整测试、`python scripts/check_coverage.py coverage.json`、
+`pip check`及3.10/3.11/3.12 CI矩阵。全仓分支覆盖率门禁为80%，`attribution.py`承担归因、
+对账和报告发布核心逻辑，其纯分支覆盖率门禁为90%。不得通过新增skip或排除核心代码规避门禁。
+
+此版本不改变价格、Carry、Funding、Roll、FX、commission/tax/maker/taker费用、slippage、
+market impact、financing或residual的归因语义；它只收紧来源契约和依赖可复现性。若需要回滚，
+回退到上一个默认分支提交及其`requirements.lock`，并重新按该锁安装；不得移动已有tag或改写
+已发布的`standard/v2`输入和归因报告。
 
 ## Adapters
 

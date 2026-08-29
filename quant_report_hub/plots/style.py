@@ -1,4 +1,5 @@
 """quant_report_hub/plots/style.py —  matplotlib 样式。"""
+
 from __future__ import annotations
 
 import sys
@@ -16,6 +17,7 @@ class _PlotOutCtx(Protocol):
 
     @property
     def cfg(self) -> Any: ...
+
 
 _CJK_FONT_CANDIDATES = (
     "Microsoft YaHei",
@@ -59,12 +61,14 @@ def apply_style() -> None:
         font=font_name,
     )
     _configure_cjk_font(font_name)
-    plt.rcParams.update({
-        "figure.dpi": 100,
-        "savefig.bbox": "tight",
-        "axes.titlesize": 12,
-        "axes.labelsize": 10,
-    })
+    plt.rcParams.update(
+        {
+            "figure.dpi": 100,
+            "savefig.bbox": "tight",
+            "axes.titlesize": 12,
+            "axes.labelsize": 10,
+        }
+    )
 
 
 def save_fig(path, dpi: int = 120) -> str:

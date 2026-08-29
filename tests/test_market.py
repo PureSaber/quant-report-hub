@@ -1,4 +1,5 @@
 """tests/test_market.py — 行情路径解析。"""
+
 from __future__ import annotations
 
 from pathlib import Path
