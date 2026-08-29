@@ -33,4 +33,5 @@ git diff --check
 - `coverage.json`在Windows以反斜杠写入模块路径；门禁脚本已按平台归一化路径，并补充回归测试。
 
 Python3.10、3.11和3.12的同一安装、Ruff、测试与覆盖率流程由`.github/workflows/ci.yml`
-的PR矩阵执行；本地仅安装了3.12解释器。
+的PR矩阵执行；本地仅安装了3.12解释器。首次PR矩阵发现`contourpy 1.3.3`要求Python>=3.11，
+因此锁已精确调整为兼容3.10的`contourpy 1.3.2`并重新触发矩阵。
