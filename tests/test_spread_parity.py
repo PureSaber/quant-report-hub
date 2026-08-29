@@ -1,4 +1,5 @@
 """Spread adapter parity — canonical implementation in quant-report-hub."""
+
 from __future__ import annotations
 
 from quant_report_hub.adapters.spread import SpreadAdapter

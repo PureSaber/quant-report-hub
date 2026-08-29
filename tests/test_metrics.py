@@ -1,4 +1,5 @@
 """tests/test_metrics.py — 指标口径。"""
+
 from __future__ import annotations
 
 import pandas as pd

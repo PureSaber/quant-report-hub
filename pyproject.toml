@@ -1,27 +1,28 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools==84.0.0", "wheel==0.45.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant-report-hub"
-version = "0.4.0"
+version = "0.4.1"
 description = "Unified visualization and exact cross-asset attribution hub for quant research outputs"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
-    "pandas>=2.0,<3",
-    "numpy>=1.24",
-    "matplotlib>=3.7",
-    "seaborn>=0.13",
-    "PyYAML>=6.0",
-    "openpyxl>=3.1",
-    "pyarrow>=14.0",
-    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@v0.3.0",
+    "pandas==2.3.2",
+    "numpy==2.2.6",
+    "matplotlib==3.10.1",
+    "seaborn==0.13.2",
+    "PyYAML==6.0.3",
+    "openpyxl==3.1.5",
+    "pyarrow==20.0.0",
+    # Published annotated tag v0.3.1; its peeled commit is locked in requirements.lock.
+    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@v0.3.1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.9.0"]
+dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.5"]
 
 [project.scripts]
 quant-report = "quant_report_hub.cli:main"
@@ -38,6 +39,17 @@ addopts = "--cov=quant_report_hub --cov-branch --cov-report=term-missing --cov-f
 
 [tool.coverage.run]
 branch = true
+
+[tool.quant-workspace]
+layer = "reporting"
+schemas = [
+    # Immutable input contracts validated by quant-lab before any report read.
+    { id = "standard/v2", version = "2.0.0" },
+    { id = "puresaber.run-manifest", version = "2.0.0" },
+    # Separately published attribution/reconciliation report manifest.
+    { id = "quant-report-hub.attribution-report", version = "2.0" },
+]
+lock-files = ["requirements.lock"]
 
 [tool.ruff]
 line-length = 100

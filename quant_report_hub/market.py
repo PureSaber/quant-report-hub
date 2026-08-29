@@ -1,4 +1,5 @@
 """quant_report_hub/market.py — 读取外部价差行情 CSV。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -36,11 +37,13 @@ def _spread_path_candidates(roots: list[Path], year: str, spread: str) -> list[P
     pair = spread_pair_folder(spread)
     paths: list[Path] = []
     for root in roots:
-        paths.extend([
-            root / year / product / product / f"{spread}.csv",
-            root / year / product / f"{spread}.csv",
-            root / year / pair / f"{spread}.csv",
-        ])
+        paths.extend(
+            [
+                root / year / product / product / f"{spread}.csv",
+                root / year / product / f"{spread}.csv",
+                root / year / pair / f"{spread}.csv",
+            ]
+        )
     # 去重保序
     seen: set[Path] = set()
     out: list[Path] = []

@@ -1,4 +1,5 @@
 """quant_report_hub/loader.py — 读取回测 output 目录，统一列名。"""
+
 from __future__ import annotations
 
 from pathlib import Path
