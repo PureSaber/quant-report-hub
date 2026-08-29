@@ -1,4 +1,5 @@
 """quant_report_hub/metrics.py — 绩效指标（对齐回测框架加法口径）。"""
+
 from __future__ import annotations
 
 import numpy as np

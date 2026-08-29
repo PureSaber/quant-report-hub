@@ -15,7 +15,9 @@ def _read_csv(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, encoding="utf-8-sig")
 
 
-def _capital_curve_to_portfolio(df: pd.DataFrame, strategy_col: str, initial_capital: float) -> pd.DataFrame:
+def _capital_curve_to_portfolio(
+    df: pd.DataFrame, strategy_col: str, initial_capital: float
+) -> pd.DataFrame:
     if df.empty or "date" not in df.columns or strategy_col not in df.columns:
         return pd.DataFrame()
     out = df[["date", strategy_col]].copy()

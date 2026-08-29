@@ -29,7 +29,9 @@ def test_factor_plots_render(tmp_path: Path):
 
     bundle = EquityAdapter(strategy="q5").load(tmp_path, "demo")
     out_dir = tmp_path / "plots"
-    cfg = VizConfig(output_root=str(tmp_path), run_id="demo", out_dir=str(out_dir), adapter="equity")
+    cfg = VizConfig(
+        output_root=str(tmp_path), run_id="demo", out_dir=str(out_dir), adapter="equity"
+    )
     ctx = PlotContext.from_bundle(cfg, bundle)
     outputs = run_plots(ctx, ("18", "19"))
     assert any(p.name.endswith("16_ic_summary.png") for p in outputs)

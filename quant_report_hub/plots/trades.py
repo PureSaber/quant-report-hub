@@ -1,4 +1,5 @@
 """交易层图表：06, 09。"""
+
 from __future__ import annotations
 
 from pathlib import Path

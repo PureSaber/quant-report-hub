@@ -1,4 +1,5 @@
 """tests/test_loader.py — loader integration against optional local baseline."""
+
 from __future__ import annotations
 
 from pathlib import Path
