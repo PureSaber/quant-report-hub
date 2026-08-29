@@ -44,10 +44,10 @@ branch = true
 layer = "reporting"
 schemas = [
     # Immutable input contracts validated by quant-lab before any report read.
-    { id = "standard/v2", version = "2.0.0", direction = "consumes" },
-    { id = "puresaber.run-manifest", version = "2.0.0", direction = "consumes" },
+    { id = "standard/v2", version = "2.0.0" },
+    { id = "puresaber.run-manifest", version = "2.0.0" },
     # Separately published attribution/reconciliation report manifest.
-    { id = "quant-report-hub.attribution-report", version = "2.0", direction = "produces" },
+    { id = "quant-report-hub.attribution-report", version = "2.0" },
 ]
 lock-files = ["requirements.lock"]
 
