@@ -40,6 +40,7 @@ packaging==26.3
     # via
     #   matplotlib
     #   pytest
+    #   wheel
 pandas==2.3.2
     # via
     #   quant-lab
@@ -51,7 +52,7 @@ pluggy==1.6.0
     # via
     #   pytest
     #   pytest-cov
-pyarrow==20.0.0
+pyarrow==23.0.1
     # via
     #   quant-lab
     #   quant-report-hub (pyproject.toml)
@@ -85,7 +86,7 @@ six==1.17.0
     # via python-dateutil
 tzdata==2026.3
     # via pandas
-wheel==0.45.1
+wheel==0.46.2
     # via quant-report-hub (pyproject.toml::build-system.requires)
 
 # The following packages are considered to be unsafe in a requirements file:
