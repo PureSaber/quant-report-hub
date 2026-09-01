@@ -3,7 +3,7 @@
 `0.4.1`将M5跨资产精确归因消费者纳入M6依赖治理。它只读取经`quant-lab v0.3.1`
 完整验证的`standard/v2`Parquet运行产物；检测到v2存在但hash、schema或血缘损坏时立即失败，绝不回退到v1。
 
-Unified visualization hub refactored from [spread-backtest-viz](../spread-backtest-viz). The original `spread-backtest-viz` repo is **not modified**; this project adds adapter-based support for equity research outputs.
+Unified visualization hub consolidated from [`spread-backtest-viz`](https://github.com/PureSaber/spread-backtest-viz). The legacy repository now contains only a deprecated compatibility shim pinned to this repository's validated commit; new integrations must use `quant-report-hub` directly.
 
 ## Install
 
@@ -52,7 +52,7 @@ market impact、financing或residual的归因语义；它只收紧来源契约�
 
 | Adapter | Source projects | Output layout |
 |---------|-----------------|---------------|
-| `spread` | future_spread_analysis | `output/<run_id>/daily/portfolio/...` |
+| `spread` | quant-futures-spread | `output/<run_id>/daily/portfolio/...` |
 | `equity` | a-share-multifactor, sklearn-stock-trend | `outputs/<run_id>/capital_curves.csv` |
 
 ## Usage
@@ -62,7 +62,7 @@ market impact、financing或residual的归因语义；它只收紧来源契约�
 ```bash
 quant-report run ^
   --adapter spread ^
-  --output-root "D:/projects/future_spread_analysis-team-framework/output" ^
+  --output-root "<workspace>/quant-futures-spread/output" ^
   --run-id baseline_dev ^
   --out-dir "./reports/baseline_dev"
 ```
