@@ -16,7 +16,7 @@ dependencies = [
     "seaborn==0.13.2",
     "PyYAML==6.0.3",
     "openpyxl==3.1.5",
-    "pyarrow==20.0.0",
+    "pyarrow==23.0.1",
     # Published annotated tag v0.3.1; its peeled commit is locked in requirements.lock.
     "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@v0.3.1",
 ]
