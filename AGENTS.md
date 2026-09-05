@@ -13,5 +13,5 @@ quant-report run --adapter spread --output-root ../future_spread_analysis-team-f
 
 ## Related
 
-- [spread-backtest-viz](https://github.com/PureSaber/spread-backtest-viz)（deprecated compatibility shim；归档待维护者批准）
+- [spread-backtest-viz](https://github.com/PureSaber/spread-backtest-viz)（deprecated compatibility shim；2026-09-05已归档为只读）
 - [quant-research-notes](https://github.com/PureSaber/quant-research-notes)
