@@ -3,7 +3,7 @@
 `0.4.1`将M5跨资产精确归因消费者纳入M6依赖治理。它只读取经`quant-lab v0.3.1`
 完整验证的`standard/v2`Parquet运行产物；检测到v2存在但hash、schema或血缘损坏时立即失败，绝不回退到v1。
 
-Unified visualization hub consolidated from [`spread-backtest-viz`](https://github.com/PureSaber/spread-backtest-viz). The legacy repository now contains only a deprecated compatibility shim pinned to this repository's validated commit; new integrations must use `quant-report-hub` directly.
+Unified visualization hub consolidated from [`spread-backtest-viz`](https://github.com/PureSaber/spread-backtest-viz). The legacy repository contains only a deprecated compatibility shim pinned to this repository's validated commit and was archived read-only on 2026-09-05; new integrations must use `quant-report-hub` directly.
 
 ## Install
 
