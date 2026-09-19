@@ -18,11 +18,12 @@ def test_metadata_declares_reporting_contracts_and_lock_file():
     assert 'lock-files = ["requirements.lock"]' in metadata
 
 
-def test_quant_lab_release_tag_and_lock_are_immutable():
+def test_quant_lab_reviewed_commit_and_lock_are_immutable():
     metadata = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     lock = (ROOT / "requirements.lock").read_text(encoding="utf-8")
-    assert "quant-lab.git@v0.3.1" in metadata
-    assert "quant-lab.git@v0.3.1" in lock
+    revision = "quant-lab.git@938927e5bcad641d46e3bd733e6323719d44aa50"
+    assert revision in metadata
+    assert revision in lock
     assert "quant-lab.git@main" not in metadata + lock
     assert "quant-lab.git@master" not in metadata + lock
 

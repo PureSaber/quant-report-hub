@@ -17,8 +17,8 @@ dependencies = [
     "PyYAML==6.0.3",
     "openpyxl==3.1.5",
     "pyarrow==23.0.1",
-    # Published annotated tag v0.3.1; its peeled commit is locked in requirements.lock.
-    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@v0.3.1",
+    # Reviewed empty-Parquet validation fix, also pinned in requirements.lock.
+    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@938927e5bcad641d46e3bd733e6323719d44aa50",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +46,7 @@ schemas = [
     # Immutable input contracts validated by quant-lab before any report read.
     { id = "standard/v2", version = "2.0.0" },
     { id = "puresaber.run-manifest", version = "2.0.0" },
+    { id = "quant.decision/v1", version = "1.0.0" },
     # Separately published attribution/reconciliation report manifest.
     { id = "quant-report-hub.attribution-report", version = "2.0" },
 ]
