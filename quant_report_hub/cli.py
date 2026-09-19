@@ -11,6 +11,7 @@ import pandas as pd
 from quant_report_hub.attribution import attribute_standard_run, reconcile_standard_run_v2
 from quant_report_hub.config import VizConfig, plot_groups_for
 from quant_report_hub.context import CompareContext, PlotContext
+from quant_report_hub.dashboard import write_dashboard
 from quant_report_hub.plots.registry import run_compare, run_plots
 
 
@@ -110,6 +111,20 @@ def _cmd_reconcile_v2(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_dashboard(args: argparse.Namespace) -> int:
+    try:
+        destination = write_dashboard(
+            [Path(root) for root in args.decision_root],
+            Path(args.out),
+            db=Path(args.lab_db) if args.lab_db else None,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"dashboard: {exc}", file=sys.stderr)
+        return 1
+    print(f"generated research dashboard -> {destination}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="quant-report", description="Quant research output visualization hub"
@@ -160,6 +175,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="包含因果reference价格、可得时间、乘数及FX的CSV；存在slippage成本时必填",
     )
     reconcile.set_defaults(func=_cmd_reconcile_v2)
+
+    dashboard = sub.add_parser("dashboard", help="生成决策、实验与证据统一研究看板")
+    dashboard.add_argument(
+        "--decision-root",
+        action="append",
+        required=True,
+        help="包含 latest.json 和运行子目录的路径；可重复指定多个目录",
+    )
+    dashboard.add_argument("--lab-db", default="", help="只读 quant-lab SQLite 实验索引")
+    dashboard.add_argument("--out", default="reports/dashboard.html", help="源目录之外的 HTML 文件")
+    dashboard.set_defaults(func=_cmd_dashboard)
     return p
 
 
