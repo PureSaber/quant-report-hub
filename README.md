@@ -1,6 +1,6 @@
 # quant-report-hub
 
-本开发分支在`0.4.1`的绘图与精确归因能力上增加只读研究看板。它只读取经固定版本`quant-lab`
+`0.5.0`在既有绘图与精确归因能力上增加只读研究看板、自动刷新、异常与账户摘要以及日报导出。它只读取经固定版本`quant-lab`
 完整验证的`standard/v2`Parquet运行产物；检测到v2存在但hash、schema或血缘损坏时立即失败，绝不回退到v1。
 
 Unified visualization hub consolidated from [`spread-backtest-viz`](https://github.com/PureSaber/spread-backtest-viz). The legacy repository contains only a deprecated compatibility shim pinned to this repository's validated commit and was archived read-only on 2026-09-05; new integrations must use `quant-report-hub` directly.
@@ -67,17 +67,26 @@ quant-report dashboard --decision-root ../review-runs --out reports/dashboard.ht
 # 可选：先由 quant-lab 建立实验索引，再以只读方式接入报告。
 quant-lab --db reports/experiments.db scan --root ../review-runs --project a-share-multifactor
 quant-report dashboard --decision-root ../review-runs --lab-db reports/experiments.db --out reports/dashboard.html
+
+# 持续监视来源并刷新页面；浏览器会在新快照发布后自动重载。
+quant-report serve --decision-root ../review-runs --lab-db reports/experiments.db --out reports/dashboard.html --port 8767
+
+# 生成可交接的 HTML／PDF／CSV 日报包。
+quant-report daily-package --decision-root ../review-runs --lab-db reports/experiments.db --out-dir reports/daily
 ```
 
 `--decision-root`可重复指定多个独立账户／策略的输出目录。浏览器打开生成的HTML即可使用，
-页面内置样式与交互，无CDN、服务器或外网请求。包含最新决策、模拟持仓、拟调仓及成本、
-风险与验证详情、历史运行、实验筛选和所选实验指标并列对比；所有指标来自产物，不重新计算收益。
+页面内置样式与交互，无CDN、服务器或外网请求。包含按处理优先级排列的决策收件箱、最新决策、
+模拟持仓、拟调仓及成本、相邻决策的目标仓位变化、计划与实际订单／成交／成本／持仓核对、
+前向1／5／20日效果成熟度、风险摘要、异常清单、多账户汇总、历史运行、实验筛选和所选实验指标并列对比。
+所有执行事实来自校验后的`standard/v2`，没有成交或观察期不足时明确显示不可用，不以0或历史结果替代。
 
 - 每个目录只认`latest.json`。最新文件缺失、损坏或状态不一致时显示来源不可用，绝不自动采用旧成功结果。
 - 检查`quant.decision/v1`字段、模拟范围和带时区的时点；纸面可用决策必须通过所引用`standard/v2`
   清单hash、运行身份、代码版本及完整产物校验。该检查不是对决策JSON的数字签名或策略收益认证。
 - 过期、阻断、仅观察及历史记录不显示当前拟调仓。浏览器每15秒检查有效期；JavaScript关闭时拟调仓默认隐藏。
-- 页面是生成时的静态快照，**生产者运行后须重新执行dashboard命令**才能反映新结果。
+- `dashboard`发布静态HTML以及相邻的`*.alerts.json`、`*.status.json`；`serve`轮询决策、账本和实验索引，
+  发现变化后原子重建三个文件，已打开页面通过状态文件自动刷新。
   报告生成成功只表示HTML已生成，不能根据命令退出码认定策略或数据可用，应查看各来源状态。
 - SQLite索引以`mode=ro`读取，不创建／更新实验数据库。存在标准产物时重新校验并读取来源指标，
   无法验证时不采用缓存；无标准产物的旧实验明确标记为未校验缓存。
@@ -85,6 +94,13 @@ quant-report dashboard --decision-root ../review-runs --lab-db reports/experimen
   每个目录最多载入200条历史记录，实验索引最多载入最近200条。
 - 证据链接使用本地相对路径，原始JSON、配置、账本和验证文件需保留原目录关系。
   看板不会启动策略、修改模拟账户或发送订单。
+- 决策差异只比较当前目录中最近一条可验证、曾为`paper_ready`的历史决策之目标数量和权重；
+  `blocked`或`observe`的空目标不会被解释为清仓，配置和代码hash变化单独标注。
+- 执行核对按`order_id`连接拟调仓与当前及后续同版本账户账本，再以`fill_id`和`cost_id`去重汇总实际结果；证券、方向、数量或
+  累计成交不一致时明确告警。前向窗口仅在生产者声明足够`forward_observation_days`、单策略且标准
+  净收益序列满足一日一条时计算。
+- `daily-package`包含`index.html`、`daily-report.pdf`、决策／执行／效果／账户／异常CSV、JSON sidecar和
+  带字节数及SHA-256的`manifest.json`。PDF使用本机Edge或Chromium打印；无浏览器的CI可显式传`--no-pdf`。
 
 详细流程见[研究看板说明](docs/RESEARCH_DASHBOARD.md)。
 

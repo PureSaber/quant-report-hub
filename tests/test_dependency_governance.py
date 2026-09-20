@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_metadata_declares_reporting_contracts_and_lock_file():
     metadata = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.4.1"' in metadata
+    assert 'version = "0.5.0"' in metadata
     assert 'layer = "reporting"' in metadata
     assert '{ id = "standard/v2", version = "2.0.0" }' in metadata
     assert '{ id = "puresaber.run-manifest", version = "2.0.0" }' in metadata
