@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from quant_lab.store import ExperimentStore
@@ -18,6 +21,10 @@ from quant_report_hub.dashboard_data import (
     read_json,
     timestamp,
 )
+from quant_report_hub.dashboard_exports import render_pdf, write_daily_package
+from quant_report_hub.dashboard_insights import risk_summary
+from quant_report_hub.dashboard_operational import execution_summary
+from quant_report_hub.dashboard_server import default_serve_root, source_fingerprint
 
 NOW = datetime(2026, 9, 19, 12, tzinfo=timezone.utc)
 
@@ -47,9 +54,9 @@ def source(tmp_path):
             "net_performance": {"total_return": 0.0, "sharpe": None},
         },
         "current_positions": [],
-        "targets": [{"symbol": "TEST", "quantity": 1}],
+        "targets": [{"symbol": "instrument-1", "quantity": 1}],
         "proposed_trades": [
-            {"symbol": "TEST", "quantity": 1, "side": "buy", "order_id": "order-1"}
+            {"symbol": "instrument-1", "quantity": 1, "side": "buy", "order_id": "order-1"}
         ],
         "estimated_cost": {"fees": 1.0, "slippage": 2.0, "total": 3.0, "currency": "USD"},
         "risk": {"nav": 1000},
@@ -79,6 +86,10 @@ def test_fresh_decision_source_integrity_and_readonly_publication(source, tmp_pa
     assert "<section data-paper-actions hidden>" in page  # fail closed when JavaScript is disabled
     assert "3.00 USD" in page
     assert "../decisions/run-1/standard/v2/config.json" in page
+    assert "决策收件箱" in page
+    assert "计划与实际执行" in page
+    assert "前向效果跟踪" in page
+    assert "全部成交" in page
     assert before == {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
     assert not list(out.parent.glob("*.tmp"))
 
@@ -131,7 +142,10 @@ def test_expired_decision_never_renders_proposals(source, tmp_path):
         lambda c: c["data_quality"].update(passed="true"),
         lambda c: c["targets"][0].update(symbol=""),
         lambda c: c["targets"][0].update(quantity=-1),
+        lambda c: c["targets"][0].update(weight="invalid"),
+        lambda c: c["targets"].append(dict(c["targets"][0])),
         lambda c: c["proposed_trades"][0].update(side="invalid"),
+        lambda c: c["proposed_trades"].append(dict(c["proposed_trades"][0])),
         lambda c: c["estimated_cost"].update(total=None),
         lambda c: c["evidence"].update(standard_manifest="../outside/run_manifest.json"),
         lambda c: c["evidence"].update(standard_manifest_sha256="0" * 64),
@@ -309,3 +323,301 @@ def test_dashboard_cli_publishes_missing_source_state(tmp_path, capsys):
     assert main(["dashboard", "--decision-root", str(tmp_path / "missing"), "--out", str(out)]) == 0
     assert "来源不可用" in out.read_text(encoding="utf-8")
     assert "generated research dashboard" in capsys.readouterr().out
+    assert out.with_suffix(".alerts.json").is_file()
+    assert out.with_suffix(".html.status.json").is_file()
+
+
+def test_execution_and_immature_outcome_are_source_backed(source):
+    root, _, _ = source
+    current = dashboard_snapshot([root], None, NOW)["sources"][0]["current"]
+    execution = current["execution"]
+    assert execution["available"]
+    assert execution["matched_orders"] == 1
+    assert execution["orders_with_fills"] == 1
+    assert execution["fill_records"] == 1
+    assert execution["orders"][0]["fill_rate"] == 1.0
+    assert execution["orders"][0]["average_fill_price"] == 101.0
+    assert execution["orders"][0]["actual_cost"] == 0.0
+    assert execution["orders"][0]["evidence_check"] == "一致"
+    assert execution["positions"][0]["symbol"] == "instrument-1"
+    assert current["outcome"]["observed_days"] == 0
+    assert not current["outcome"]["available"]
+    assert all(row["return"] is None for row in current["outcome"]["windows"])
+
+
+def test_forward_windows_require_declared_maturity(source):
+    root, run, card = source
+    card["validation"]["forward_observation_days"] = 2
+    dump(run / "decision.json", card)
+    outcome = load_decision_root(root, NOW)["current"]["outcome"]
+    assert outcome["available"]
+    assert outcome["observed_return"] == 0.0
+    assert outcome["windows"] == [
+        {"days": 1, "return": 0.0},
+        {"days": 5, "return": None},
+        {"days": 20, "return": None},
+    ]
+
+
+def test_missing_or_mismatched_order_evidence_is_explicit(source):
+    root, run, card = source
+    card["proposed_trades"][0]["order_id"] = "missing-order"
+    dump(run / "decision.json", card)
+    execution = load_decision_root(root, NOW)["current"]["execution"]
+    assert not execution["available"]
+    assert execution["matched_orders"] == 0
+    assert "没有匹配记录" in execution["notice"]
+    assert execution["orders"][0]["order_status"] == "source_missing"
+
+
+def test_current_target_change_uses_most_recent_valid_history(source):
+    root, run, card = source
+    previous = root / "run-0"
+    _write_run(previous, source=[], costs=[], nav_delta=0)
+    previous_manifest = previous / "standard/v2/run_manifest.json"
+    old_card = json.loads(json.dumps(card))
+    old_card.update(
+        run_id="run-0",
+        generated_at="2026-09-18T07:00:00Z",
+        targets=[{"symbol": "old-symbol", "quantity": 2, "weight": 0.2}],
+        proposed_trades=[
+            {"symbol": "old-symbol", "quantity": 2, "side": "buy", "order_id": "old-order"}
+        ],
+    )
+    old_card["evidence"].update(
+        standard_manifest=str(previous_manifest),
+        standard_manifest_sha256=hashlib.sha256(previous_manifest.read_bytes()).hexdigest(),
+    )
+    dump(previous / "decision.json", old_card)
+    current = load_decision_root(root, NOW)["current"]
+    assert current["change"]["available"]
+    assert current["change"]["previous_run_id"] == "run-0"
+    assert current["change"]["counts"]["new"] == 1
+    assert current["change"]["counts"]["exit"] == 1
+    assert "新增 1" in current["change"]["summary"]
+    assert run.name == current["run_id"]
+
+
+def test_nonactionable_current_state_does_not_imply_liquidation(source):
+    root, run, card = source
+    card.update(status="observe", targets=[], proposed_trades=[])
+    dump(run / "decision.json", card)
+    dump(
+        root / "latest.json",
+        {"run_id": run.name, "status": "observe", "decision": "run-1/decision.json"},
+    )
+    change = load_decision_root(root, NOW)["current"]["change"]
+    assert not change["available"]
+    assert change["rows"] == []
+    assert "没有可比较" in change["summary"]
+
+
+def test_snapshot_builds_risk_alert_and_account_views(source):
+    root, _, _ = source
+    snapshot = dashboard_snapshot([root], None, NOW)
+    assert snapshot["accounts"] == [
+        {
+            "source": "decisions",
+            "project": "m5-golden",
+            "strategies": "alpha",
+            "account_id": "acct-1",
+            "status": "paper_ready",
+            "nav": 1000.0,
+            "cash": 900.0,
+            "market_value": 100.0,
+            "currency": "USD",
+            "planned_orders": 1,
+            "filled_orders": 1,
+            "alerts": 0,
+            "as_of": "2026-09-18",
+        }
+    ]
+    assert [row["code"] for row in snapshot["alerts"]] == ["forward_window_immature"]
+    assert snapshot["sources"][0]["current"]["risk_summary"]["available"]
+
+
+def test_risk_summary_flags_concentration_drawdown_and_cash():
+    summary = risk_summary(
+        {
+            "targets": [{"symbol": "AAA", "weight": 0.8}, {"symbol": "BBB", "weight": 0.3}],
+            "risk": {
+                "nav": 1000,
+                "currency": "CNY",
+                "max_single_weight": 0.4,
+                "max_drawdown": 0.1,
+                "allocation": {"max_position_weight": 0.5, "cash_buffer": 0.05},
+            },
+            "validation": {"net_performance": {"max_drawdown": -0.2}},
+            "estimated_cost": {"total": 2},
+        }
+    )
+    assert {row["code"] for row in summary["breaches"]} == {
+        "target_concentration",
+        "drawdown_limit",
+        "target_leverage",
+    }
+    assert summary["metrics"][-1]["value"] == 20.0
+
+
+def test_risk_summary_surfaces_pre_order_portfolio_check():
+    summary = risk_summary(
+        {
+            "targets": [],
+            "risk": {
+                "nav": 100000,
+                "portfolio_checks": [
+                    {
+                        "has_critical": True,
+                        "metrics": {
+                            "gross_weight": 0.8,
+                            "cash_weight": 0.2,
+                            "turnover": 0.8,
+                            "positions": 2,
+                            "industry_weights": {"bank": 0.55, "appliance": 0.25},
+                        },
+                        "alerts": [
+                            {
+                                "rule_id": "portfolio.max_industry_weight",
+                                "severity": "critical",
+                                "message": "bank exceeds the industry concentration limit",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+    metrics = {item["label"]: item["value"] for item in summary["metrics"]}
+    assert metrics["预计换手"] == 0.8
+    assert metrics["最大行业权重"] == 0.55
+    assert summary["breaches"][0]["code"] == "portfolio.max_industry_weight"
+
+
+def test_execution_can_close_a_prior_order_from_cumulative_followup_runs(tmp_path, monkeypatch):
+    event0 = datetime(2026, 9, 18, tzinfo=timezone.utc)
+    event1 = datetime(2026, 9, 19, tzinfo=timezone.utc)
+
+    def fake_rows(run, _manifest, name, _columns, *, filters=None):
+        assert filters or name == "positions"
+        if name == "orders":
+            status = "accepted" if run.name == "first" else "filled"
+            return [
+                {
+                    "event_time": event0 if status == "accepted" else event1,
+                    "order_id": "future-order",
+                    "account_id": "paper",
+                    "instrument_id": "AAA",
+                    "side": "buy",
+                    "quantity_units": 10,
+                    "quantity_scale": 0,
+                    "status": status,
+                    "filled_quantity_units": 0 if status == "accepted" else 10,
+                    "filled_quantity_scale": 0,
+                    "version": 1 if status == "accepted" else 2,
+                }
+            ]
+        if name == "fills" and run.name != "first":
+            return [
+                {
+                    "event_time": event1,
+                    "fill_id": "fill-once",
+                    "order_id": "future-order",
+                    "account_id": "paper",
+                    "instrument_id": "AAA",
+                    "side": "buy",
+                    "quantity_units": 10,
+                    "quantity_scale": 0,
+                    "price_units": 101,
+                    "price_scale": 0,
+                    "currency": "CNY",
+                }
+            ]
+        if name == "costs" and run.name != "first":
+            return [
+                {
+                    "cost_id": "cost-once",
+                    "fill_id": "fill-once",
+                    "cost_type": "commission",
+                    "amount_units": 5,
+                    "amount_scale": 0,
+                    "currency": "CNY",
+                }
+            ]
+        return []
+
+    monkeypatch.setattr("quant_report_hub.dashboard_operational._rows", fake_rows)
+    monkeypatch.setattr("quant_report_hub.dashboard_operational._artifact", lambda *_: None)
+    first = SimpleNamespace(run_id="first")
+    next_one = SimpleNamespace(run_id="next-one")
+    next_two = SimpleNamespace(run_id="next-two")
+    result = execution_summary(
+        tmp_path / "first",
+        first,
+        {
+            "proposed_trades": [
+                {
+                    "order_id": "future-order",
+                    "symbol": "AAA",
+                    "side": "buy",
+                    "quantity": 10,
+                    "estimated_execution_price": 100,
+                }
+            ]
+        },
+        followup_runs=[(tmp_path / "next-one", next_one), (tmp_path / "next-two", next_two)],
+    )
+    assert result["fill_records"] == 1
+    assert result["orders_with_fills"] == 1
+    assert result["orders"][0]["average_fill_price"] == 101.0
+    assert result["actual_costs"] == [{"currency": "CNY", "amount": 5.0}]
+    assert result["evidence_runs"] == ["first", "next-one", "next-two"]
+
+
+def test_daily_package_exports_html_csv_json_and_manifest(source, tmp_path):
+    root, _, _ = source
+    snapshot = dashboard_snapshot([root], None, NOW)
+    outputs = write_daily_package(snapshot, tmp_path / "daily", include_pdf=False)
+    names = {path.name for path in outputs}
+    assert {
+        "index.html",
+        "index.alerts.json",
+        "index.html.status.json",
+        "decisions.csv",
+        "execution.csv",
+        "outcomes.csv",
+        "accounts.csv",
+        "alerts.csv",
+        "manifest.json",
+    } == names
+    manifest = json.loads((tmp_path / "daily/manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "quant-report-hub.daily-package/v1"
+    assert len(manifest["files"]) == 8
+    assert (tmp_path / "daily/decisions.csv").read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+def test_pdf_export_uses_explicit_browser_and_validates_output(tmp_path, monkeypatch):
+    browser = tmp_path / "browser.exe"
+    browser.write_bytes(b"fixture")
+    html = tmp_path / "index.html"
+    html.write_text("<h1>daily</h1>", encoding="utf-8")
+
+    def fake_run(command, **_kwargs):
+        output = next(
+            value.split("=", 1)[1] for value in command if value.startswith("--print-to-pdf=")
+        )
+        Path(output).write_bytes(b"%PDF-1.4\nfixture")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("quant_report_hub.dashboard_exports.subprocess.run", fake_run)
+    pdf = render_pdf(html, tmp_path / "daily.pdf", browser=browser)
+    assert pdf.read_bytes().startswith(b"%PDF")
+
+
+def test_watch_fingerprint_and_default_root_change_with_inputs(source, tmp_path):
+    root, _, _ = source
+    out = tmp_path / "reports/dashboard.html"
+    first = source_fingerprint([root], None)
+    (root / "latest.json").touch()
+    second = source_fingerprint([root], None)
+    assert first != second
+    assert default_serve_root([root], out).is_dir() or default_serve_root([root], out) == tmp_path

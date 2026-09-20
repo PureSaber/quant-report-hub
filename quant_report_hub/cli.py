@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,7 +12,9 @@ import pandas as pd
 from quant_report_hub.attribution import attribute_standard_run, reconcile_standard_run_v2
 from quant_report_hub.config import VizConfig, plot_groups_for
 from quant_report_hub.context import CompareContext, PlotContext
-from quant_report_hub.dashboard import write_dashboard
+from quant_report_hub.dashboard import write_dashboard_bundle
+from quant_report_hub.dashboard_exports import write_daily_package, write_runtime_sidecars
+from quant_report_hub.dashboard_server import serve_dashboard
 from quant_report_hub.plots.registry import run_compare, run_plots
 
 
@@ -113,15 +116,59 @@ def _cmd_reconcile_v2(args: argparse.Namespace) -> int:
 
 def _cmd_dashboard(args: argparse.Namespace) -> int:
     try:
-        destination = write_dashboard(
+        destination, snapshot = write_dashboard_bundle(
             [Path(root) for root in args.decision_root],
             Path(args.out),
             db=Path(args.lab_db) if args.lab_db else None,
         )
+        sidecars = write_runtime_sidecars(snapshot, destination)
     except (OSError, ValueError) as exc:
         print(f"dashboard: {exc}", file=sys.stderr)
         return 1
     print(f"generated research dashboard -> {destination}")
+    print(f"generated alert/status sidecars -> {', '.join(path.name for path in sidecars)}")
+    return 0
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    if args.poll_seconds <= 0 or not 0 < args.port < 65536:
+        print("serve: poll-seconds and port must be positive", file=sys.stderr)
+        return 1
+    try:
+        serve_dashboard(
+            [Path(root) for root in args.decision_root],
+            Path(args.out),
+            db=Path(args.lab_db) if args.lab_db else None,
+            host=args.host,
+            port=args.port,
+            poll_seconds=args.poll_seconds,
+            serve_root=Path(args.serve_root) if args.serve_root else None,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"serve: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_daily_package(args: argparse.Namespace) -> int:
+    roots = [Path(root) for root in args.decision_root]
+    out_dir = Path(args.out_dir)
+    try:
+        _, snapshot = write_dashboard_bundle(
+            roots,
+            out_dir / "index.html",
+            db=Path(args.lab_db) if args.lab_db else None,
+        )
+        outputs = write_daily_package(
+            snapshot,
+            out_dir,
+            browser=Path(args.browser) if args.browser else None,
+            include_pdf=not args.no_pdf,
+        )
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        print(f"daily-package: {exc}", file=sys.stderr)
+        return 1
+    print(f"generated daily package ({len(outputs)} files) -> {out_dir.resolve()}")
     return 0
 
 
@@ -186,6 +233,34 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--lab-db", default="", help="只读 quant-lab SQLite 实验索引")
     dashboard.add_argument("--out", default="reports/dashboard.html", help="源目录之外的 HTML 文件")
     dashboard.set_defaults(func=_cmd_dashboard)
+
+    serve = sub.add_parser("serve", help="生成、监视并在本机持续提供研究看板")
+    serve.add_argument(
+        "--decision-root",
+        action="append",
+        required=True,
+        help="包含 latest.json 和运行子目录的路径；可重复指定多个目录",
+    )
+    serve.add_argument("--lab-db", default="", help="只读 quant-lab SQLite 实验索引")
+    serve.add_argument("--out", default="reports/dashboard.html", help="源目录之外的 HTML 文件")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8767)
+    serve.add_argument("--poll-seconds", type=float, default=2.0)
+    serve.add_argument("--serve-root", default="", help="HTTP 根目录；默认取输入和输出的共同父目录")
+    serve.set_defaults(func=_cmd_serve)
+
+    package = sub.add_parser("daily-package", help="导出 HTML、PDF、CSV 和异常清单日报包")
+    package.add_argument(
+        "--decision-root",
+        action="append",
+        required=True,
+        help="包含 latest.json 和运行子目录的路径；可重复指定多个目录",
+    )
+    package.add_argument("--lab-db", default="", help="只读 quant-lab SQLite 实验索引")
+    package.add_argument("--out-dir", required=True, help="源目录之外的日报包目录")
+    package.add_argument("--browser", default="", help="用于打印 PDF 的 Edge/Chromium 可执行文件")
+    package.add_argument("--no-pdf", action="store_true", help="仅在无浏览器的自动化环境跳过 PDF")
+    package.set_defaults(func=_cmd_daily_package)
     return p
 
 

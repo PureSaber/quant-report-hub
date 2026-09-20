@@ -16,6 +16,15 @@ from typing import Any
 
 from quant_lab.contracts_v2 import RunManifestV2, load_and_validate_standard_run
 
+from quant_report_hub.dashboard_insights import account_summary, build_alerts, risk_summary
+from quant_report_hub.dashboard_operational import (
+    account_snapshots,
+    decision_change,
+    execution_summary,
+    outcome_summary,
+    run_identity,
+)
+
 MAX_JSON_BYTES = 8 * 1024 * 1024
 MAX_RUNS = 200
 STATUSES = {"blocked", "observe", "paper_ready"}
@@ -126,13 +135,19 @@ def validate_decision(card: dict, run_id: str, now: datetime) -> None:
                 or not row["order_id"]
             ):
                 raise ValueError("Invalid proposed order identity or side")
+            if key == "targets" and "weight" in row and not _number(row.get("weight"), minimum=0):
+                raise ValueError("Invalid target weight")
+    if len({row["symbol"] for row in card["targets"]}) != len(card["targets"]):
+        raise ValueError("Duplicate target instrument")
+    if len({row["order_id"] for row in card["proposed_trades"]}) != len(card["proposed_trades"]):
+        raise ValueError("Duplicate proposed order identity")
     if any(
         not _number(card["estimated_cost"].get(k), minimum=0) for k in ("fees", "slippage", "total")
     ):
         raise ValueError("Invalid estimated cost")
 
 
-def _verify_ledger(card: dict, run: Path) -> None:
+def _verify_ledger(card: dict, run: Path) -> RunManifestV2:
     expected = (run / "standard" / "v2" / "run_manifest.json").resolve()
     evidence = card["evidence"]
     reference = Path(evidence.get("standard_manifest", ""))
@@ -148,6 +163,7 @@ def _verify_ledger(card: dict, run: Path) -> None:
         raise ValueError("Ledger identity does not match decision")
     if manifest.code_version != evidence.get("code_version"):
         raise ValueError("Ledger code version does not match decision")
+    return manifest
 
 
 def load_decision(path: Path, *, root: Path, now: datetime, latest: bool = False) -> dict:
@@ -159,16 +175,33 @@ def load_decision(path: Path, *, root: Path, now: datetime, latest: bool = False
         "status": "invalid",
         "card": {},
         "error": "",
+        "identity": {},
+        "execution": {},
+        "outcome": {},
+        "change": {},
+        "risk_summary": {},
+        "account_snapshots": [],
+        "_manifest": None,
     }
     try:
         if not path.resolve().is_relative_to(root.resolve()):
             raise ValueError("Decision path escapes its configured root")
         card = read_json(path)
         validate_decision(card, path.parent.name, now)
+        manifest = None
         if card["status"] == "paper_ready" or card["evidence"].get("standard_manifest"):
-            _verify_ledger(card, path.parent)
+            manifest = _verify_ledger(card, path.parent)
         result["card"] = card
         result["status"] = card["status"]
+        if manifest is not None:
+            result["_manifest"] = manifest
+            result["identity"] = run_identity(manifest)
+            result["account_snapshots"] = account_snapshots(path.parent, manifest)
+            result["identity"]["accounts"] = [
+                row["account_id"] for row in result["account_snapshots"]
+            ]
+            result["outcome"] = outcome_summary(path.parent, manifest, card)
+        result["risk_summary"] = risk_summary(card)
         if card["status"] != "blocked" and timestamp(card["valid_until"]) <= now:
             result["status"] = "expired"
     except Exception as exc:  # noqa: BLE001 -- isolate external artifact failures in the report
@@ -188,6 +221,13 @@ def load_decision_root(root: Path, now: datetime) -> dict:
         "status": "invalid",
         "card": {},
         "error": "",
+        "identity": {},
+        "execution": {},
+        "outcome": {},
+        "change": {},
+        "risk_summary": {},
+        "account_snapshots": [],
+        "_manifest": None,
     }
     selected: Path | None = None
     try:
@@ -214,6 +254,45 @@ def load_decision_root(root: Path, now: datetime) -> dict:
     candidates = sorted(root.glob("*/decision.json"), reverse=True) if root.is_dir() else []
     history_paths = [p for p in candidates if p != selected][:MAX_RUNS]
     history = [load_decision(p, root=root, now=now) for p in history_paths]
+    valid = [
+        item
+        for item in [*history, current]
+        if item.get("card") and item.get("_manifest") is not None
+    ]
+    valid.sort(key=lambda item: timestamp(item["card"]["generated_at"]))
+
+    def compatible(left: RunManifestV2, right: RunManifestV2) -> bool:
+        return all(
+            getattr(left, key) == getattr(right, key)
+            for key in (
+                "project",
+                "strategy_ids",
+                "profile",
+                "base_currency",
+                "config_sha256",
+                "code_version",
+                "execution_model_version",
+            )
+        )
+
+    for index, item in enumerate(valid):
+        manifest = item["_manifest"]
+        followups = [
+            (Path(later["path"]).parent, later["_manifest"])
+            for later in valid[index + 1 :]
+            if compatible(manifest, later["_manifest"])
+        ]
+        item["execution"] = execution_summary(
+            Path(item["path"]).parent,
+            manifest,
+            item["card"],
+            followup_runs=followups,
+        )
+        item["identity"]["accounts"] = sorted(
+            set(item["identity"].get("accounts", [])) | set(item["execution"]["accounts"])
+        )
+    previous = next((item for item in history if item["card"].get("status") == "paper_ready"), None)
+    current["change"] = decision_change(current, previous)
     return {
         "root": str(root),
         "current": current,
@@ -280,9 +359,20 @@ def dashboard_snapshot(roots: list[Path], db: Path | None, now: datetime | None 
     if now.tzinfo is None:
         raise ValueError("Dashboard time must include timezone")
     experiments, notice = read_experiments(db)
+    sources = [load_decision_root(root, now) for root in dict.fromkeys(roots)]
+    for index, source in enumerate(sources):
+        source_id = f"source-{index}"
+        source["source_id"] = source_id
+        source["current"]["source_id"] = source_id
+        for item in source["history"]:
+            item["source_id"] = source_id
+    alerts = build_alerts(sources, experiments)
+    accounts = account_summary(sources, alerts)
     return {
         "generated_at": now.isoformat(),
-        "sources": [load_decision_root(root, now) for root in dict.fromkeys(roots)],
+        "sources": sources,
         "experiments": experiments,
         "index_notice": notice,
+        "alerts": alerts,
+        "accounts": accounts,
     }
