@@ -21,7 +21,7 @@ def test_metadata_declares_reporting_contracts_and_lock_file():
 def test_quant_lab_reviewed_commit_and_lock_are_immutable():
     metadata = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     lock = (ROOT / "requirements.lock").read_text(encoding="utf-8")
-    revision = "quant-lab.git@938927e5bcad641d46e3bd733e6323719d44aa50"
+    revision = "quant-lab.git@bace19c01cf3ecd77fbbb4a5bc75f2ce3498902f"
     assert revision in metadata
     assert revision in lock
     assert "quant-lab.git@main" not in metadata + lock
