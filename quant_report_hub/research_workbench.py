@@ -263,6 +263,19 @@ def render_study(source: Path, output: Path) -> dict:
         if summary["recipe"].get("validation")
         else ""
     )
+    risk_evidence = {
+        r["candidate"]["name"]: r["risk_summary"]
+        for r in summary["results"]
+        if r.get("risk_summary")
+    }
+    risk_html = (
+        "<section><h2>风险执行证据</h2><p>目标拒绝、实际持仓超限与回撤动作分别留痕。"
+        "statistical_proxy为统计代理模型；不代表MSCI Barra或已获验证的基本面描述子。</p><pre>"
+        + escape(json.dumps(risk_evidence, ensure_ascii=False, indent=2))
+        + "</pre></section>"
+        if risk_evidence
+        else ""
+    )
     html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>策略研究 · {escape(summary["study_id"])}</title>
 <style>body{{font:15px/1.65 system-ui,sans-serif;background:#f4f6fa;color:#182334;margin:0}}main{{max-width:1240px;margin:auto;padding:32px}}h1{{font-size:30px;margin:0}}.muted{{color:#64748b}}section{{background:white;padding:24px;border:1px solid #dfe5ee;border-radius:12px;margin:20px 0}}.stats{{display:flex;gap:36px}}.stats b{{font-size:28px;display:block}}table{{border-collapse:collapse;width:100%;min-width:760px}}td,th{{text-align:left;padding:12px;border-bottom:1px solid #e6ebf2}}th{{background:#f1f5fa;white-space:nowrap}}.scroll{{overflow:auto}}input{{padding:10px;border:1px solid #ccd5e1;border-radius:6px;width:280px;max-width:90%}}li{{margin:10px 0}}pre{{white-space:pre-wrap;word-break:break-word;font-size:12px}}details{{margin-top:16px}}.badge{{color:#17605c;background:#e4f4f0;padding:4px 10px;border-radius:20px}}</style>
@@ -272,7 +285,7 @@ def render_study(source: Path, output: Path) -> dict:
 <section><h2>实验比较</h2><p class="muted">成本压力实验单独标识口径差异；不按最高收益自动晋级。收益来自模拟账本。</p><input id="filter" placeholder="筛选实验名称或状态" aria-label="筛选实验"><div class="scroll"><table id="experiments"><thead><tr><th>实验</th><th>状态</th><th>净收益</th><th>最大回撤</th><th>Sharpe</th><th>成交</th><th>费用</th><th>失败原因</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></section>
 <section><h2>稳健性与失败诊断</h2><ul>{cards}</ul><p class="muted">诊断反映配对实验结果，不是收益预测或因果证明。未触碰留出区间须单独等待并评估。</p></section>
 <section><h2>证据与适用范围</h2><ul>{"".join("<li>" + escape(s) + "</li>" for s in limitations)}</ul><details><summary>比较口径差异</summary><pre>{escape(json.dumps(comparison["mismatches"], ensure_ascii=False, indent=2))}</pre></details><details><summary>冻结研究配方</summary><pre>{escape(json.dumps(summary["recipe"], ensure_ascii=False, indent=2))}</pre></details></section>
-{validation_html}{factor_html}</main><script>document.getElementById('filter').addEventListener('input',function(){{const q=this.value.toLowerCase();document.querySelectorAll('#experiments tbody tr').forEach(r=>r.hidden=!r.textContent.toLowerCase().includes(q));}});</script></html>"""
+{validation_html}{risk_html}{factor_html}</main><script>document.getElementById('filter').addEventListener('input',function(){{const q=this.value.toLowerCase();document.querySelectorAll('#experiments tbody tr').forEach(r=>r.hidden=!r.textContent.toLowerCase().includes(q));}});</script></html>"""
     temporary = output.with_suffix(output.suffix + ".tmp")
     temporary.write_text(html, encoding="utf-8")
     temporary.replace(output)
