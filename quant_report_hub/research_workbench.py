@@ -101,7 +101,7 @@ def diagnose(summary: dict) -> list[dict]:
         findings.append(
             {
                 "code": "NET_BASELINE_DIFFERENCE",
-                "message": f"主实验相对同仓位买入持有的净收益差为{difference:.2%}。",
+                "message": f"主实验相对同投入上限买入持有的净收益差为{difference * 100:.2f}个百分点。",
                 "value": difference,
                 "evidence": ["base", "buy_hold"],
             }
@@ -113,7 +113,7 @@ def diagnose(summary: dict) -> list[dict]:
         findings.append(
             {
                 "code": "PAIRED_PERTURBATION",
-                "message": f"{name}相对主实验的净收益变化为{difference:.2%}。",
+                "message": f"{name}相对主实验的净收益变化为{difference * 100:.2f}个百分点。",
                 "value": difference,
                 "evidence": ["base", name],
                 "interpretation": "预先登记的配对诊断；不自动选取收益最高的候选",
