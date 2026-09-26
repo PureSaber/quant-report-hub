@@ -244,7 +244,10 @@ def render_study(source: Path, output: Path) -> dict:
             + "</tbody></table></div><details><summary>分年度、行业、市场状态及冗余</summary><pre>"
             + escape(
                 json.dumps(
-                    {k: factors.get(k, []) for k in ("segments", "correlations")},
+                    {
+                        k: factors.get(k, [])
+                        for k in ("segments", "correlations", "incremental", "neutralization")
+                    },
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -252,6 +255,12 @@ def render_study(source: Path, output: Path) -> dict:
             + "</pre></details></section>"
         )
         if factor_rows
+        else ""
+    )
+    validation_html = (
+        "<section><h2>滚动样本外验证</h2><p>本页指标由各折测试区间拼接；每折重新入场并计费。候选选择仅使用训练结果。</p>"
+        '<a href="validation.html">查看逐折选择、样本外收益与多重比较</a></section>'
+        if summary["recipe"].get("validation")
         else ""
     )
     html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8">
@@ -263,7 +272,7 @@ def render_study(source: Path, output: Path) -> dict:
 <section><h2>实验比较</h2><p class="muted">成本压力实验单独标识口径差异；不按最高收益自动晋级。收益来自模拟账本。</p><input id="filter" placeholder="筛选实验名称或状态" aria-label="筛选实验"><div class="scroll"><table id="experiments"><thead><tr><th>实验</th><th>状态</th><th>净收益</th><th>最大回撤</th><th>Sharpe</th><th>成交</th><th>费用</th><th>失败原因</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></section>
 <section><h2>稳健性与失败诊断</h2><ul>{cards}</ul><p class="muted">诊断反映配对实验结果，不是收益预测或因果证明。未触碰留出区间须单独等待并评估。</p></section>
 <section><h2>证据与适用范围</h2><ul>{"".join("<li>" + escape(s) + "</li>" for s in limitations)}</ul><details><summary>比较口径差异</summary><pre>{escape(json.dumps(comparison["mismatches"], ensure_ascii=False, indent=2))}</pre></details><details><summary>冻结研究配方</summary><pre>{escape(json.dumps(summary["recipe"], ensure_ascii=False, indent=2))}</pre></details></section>
-{factor_html}</main><script>document.getElementById('filter').addEventListener('input',function(){{const q=this.value.toLowerCase();document.querySelectorAll('#experiments tbody tr').forEach(r=>r.hidden=!r.textContent.toLowerCase().includes(q));}});</script></html>"""
+{validation_html}{factor_html}</main><script>document.getElementById('filter').addEventListener('input',function(){{const q=this.value.toLowerCase();document.querySelectorAll('#experiments tbody tr').forEach(r=>r.hidden=!r.textContent.toLowerCase().includes(q));}});</script></html>"""
     temporary = output.with_suffix(output.suffix + ".tmp")
     temporary.write_text(html, encoding="utf-8")
     temporary.replace(output)
