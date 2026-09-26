@@ -78,7 +78,7 @@ pyyaml==6.0.3
     # via
     #   quant-lab
     #   quant-report-hub (pyproject.toml)
-quant-lab @ git+https://github.com/PureSaber/quant-lab.git@938927e5bcad641d46e3bd733e6323719d44aa50
+quant-lab @ git+https://github.com/PureSaber/quant-lab.git@bace19c01cf3ecd77fbbb4a5bc75f2ce3498902f
     # via quant-report-hub (pyproject.toml)
 ruff==0.16.5
     # via quant-report-hub (pyproject.toml)

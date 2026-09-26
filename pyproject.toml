@@ -18,7 +18,7 @@ dependencies = [
     "openpyxl==3.1.5",
     "pyarrow==23.0.1",
     # Reviewed empty-Parquet validation fix, also pinned in requirements.lock.
-    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@938927e5bcad641d46e3bd733e6323719d44aa50",
+    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@bace19c01cf3ecd77fbbb4a5bc75f2ce3498902f",
 ]
 
 [project.optional-dependencies]
