@@ -22,7 +22,7 @@ def load_study(path: Path) -> dict:
             "SELECT definition,sha256 FROM studies WHERE study_id=?", (summary["study_id"],)
         ).fetchone()
         events = db.execute(
-            "SELECT attempt_id,status,payload FROM trial_events WHERE study_id=? ORDER BY sequence",
+            "SELECT attempt_id,status,recorded_at,payload FROM trial_events WHERE study_id=? ORDER BY sequence",
             (summary["study_id"],),
         ).fetchall()
     if (
@@ -34,6 +34,17 @@ def load_study(path: Path) -> dict:
     definition = json.loads(row[0])
     if definition["recipe"] != summary["recipe"]:
         raise ValueError("Recipe differs from preregistration")
+    history = [
+        {
+            "attempt_id": attempt,
+            "status": status,
+            "recorded_at": recorded_at,
+            "payload": json.loads(payload),
+        }
+        for attempt, status, recorded_at, payload in events
+    ]
+    if summary.get("attempts") != history:
+        raise ValueError("Attempt history differs from registry")
     expected = {r["candidate_id"]: r for r in definition["parameters"]}
     actual = [r["candidate"]["candidate_id"] for r in summary["results"]]
     if len(actual) != len(set(actual)) or set(actual) != set(expected):
@@ -47,7 +58,7 @@ def load_study(path: Path) -> dict:
         raise ValueError("Study result counts differ from candidates")
     terminals = {
         attempt: (status, json.loads(payload))
-        for attempt, status, payload in events
+        for attempt, status, _, payload in events
         if status != "running"
     }
     for result in summary["results"]:

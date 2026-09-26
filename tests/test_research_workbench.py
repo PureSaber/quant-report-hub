@@ -79,3 +79,30 @@ def test_no_baseline_and_fixture_do_not_claim_alpha():
     assert diagnose({"results": []})[0]["code"] == "BASELINE_UNAVAILABLE"
     result = {"candidate": {"name": "base"}, "status": "completed", "scope": "fixture-only"}
     assert diagnose({"results": [result]})[0]["code"] == "FIXTURE_ONLY"
+
+
+@pytest.mark.parametrize("tamper", ["omit_failed", "reorder", "change_time"])
+def test_report_verifies_entire_attempt_history_after_retry(tmp_path, tamper):
+    fail_base = True
+
+    def executor(spec, candidate, out):
+        if fail_base and candidate["name"] == "base":
+            raise ValueError("first attempt failed")
+        return {"scope": "retrospective", "metrics": {"total_return": 0}, "comparison": {}}
+
+    execute_study(recipe(), tmp_path, identity={"code": "a"}, data_identity={}, executor=executor)
+    fail_base = False
+    execute_study(recipe(), tmp_path, identity={"code": "a"}, data_identity={}, executor=executor)
+    path = tmp_path / "study.json"
+    summary = load_study(path)
+    assert summary["failed"] == 0
+    assert any(event["status"] == "failed" for event in summary["attempts"])
+    if tamper == "omit_failed":
+        summary["attempts"] = [e for e in summary["attempts"] if e["status"] != "failed"]
+    elif tamper == "reorder":
+        summary["attempts"].reverse()
+    else:
+        summary["attempts"][0]["recorded_at"] = "2000-01-01T00:00:00+00:00"
+    path.write_text(json.dumps(summary), encoding="utf-8")
+    with pytest.raises(ValueError, match="Attempt history"):
+        load_study(path)
