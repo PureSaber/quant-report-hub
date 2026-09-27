@@ -1,2 +1,4 @@
-# Keep the Python 3.10 wheel baseline compatible.
+# Cross-interpreter resolver constraints for the audited Python 3.10-3.12 lock.
+# Preserve the reporting baseline as well as QDK's wheel compatibility.
+contourpy<1.3.3
 rpds-py<0.31
