@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,13 @@ def _parse_strategy_params(raw: str | None) -> dict[str, float]:
         k, v = part.split("=", 1)
         out[k.strip()] = float(v.strip())
     return out
+
+
+def _cmd_source_resolution(args: argparse.Namespace) -> int:
+    from quant_report_hub.source_reconciliation import resolution_card
+
+    print(json.dumps(resolution_card(args.decision), ensure_ascii=False, indent=2))
+    return 0
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -261,6 +269,9 @@ def build_parser() -> argparse.ArgumentParser:
     package.add_argument("--browser", default="", help="用于打印 PDF 的 Edge/Chromium 可执行文件")
     package.add_argument("--no-pdf", action="store_true", help="仅在无浏览器的自动化环境跳过 PDF")
     package.set_defaults(func=_cmd_daily_package)
+    source = sub.add_parser("source-resolution", help="核验来源裁决并列出需要重跑的产物")
+    source.add_argument("--decision", required=True)
+    source.set_defaults(func=_cmd_source_resolution)
     return p
 
 
