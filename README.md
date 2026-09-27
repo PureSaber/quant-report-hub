@@ -1,5 +1,7 @@
 # quant-report-hub
 
+研究可信度升级：接口、使用示例、验收及限制见 [11–20 使用说明](docs/RESEARCH_EVIDENCE.md)。
+
 `0.5.0`在既有绘图与精确归因能力上增加只读研究看板、自动刷新、异常与账户摘要以及日报导出。它只读取经固定版本`quant-lab`
 完整验证的`standard/v2`Parquet运行产物；检测到v2存在但hash、schema或血缘损坏时立即失败，绝不回退到v1。
 
