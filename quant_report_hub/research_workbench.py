@@ -11,12 +11,12 @@ from pathlib import Path
 from quant_lab.research import canonical, compare_results, digest, verify_result
 
 
-def load_study(path: Path) -> dict:
+def load_study(path: Path, *, registry_path: Path | None = None) -> dict:
     summary = json.loads(path.read_text(encoding="utf-8"))
     if summary.get("schema_version") != "quant.research-study/v1":
         raise ValueError("Unsupported research study schema")
     with sqlite3.connect(
-        (path.parent / "experiments.db").resolve().as_uri() + "?mode=ro", uri=True
+        (registry_path or path.parent / "experiments.db").resolve().as_uri() + "?mode=ro", uri=True
     ) as db:
         row = db.execute(
             "SELECT definition,sha256 FROM studies WHERE study_id=?", (summary["study_id"],)
@@ -81,6 +81,17 @@ def load_study(path: Path) -> dict:
 def diagnose(summary: dict) -> list[dict]:
     rows = {r["candidate"]["name"]: r for r in summary["results"] if r["status"] == "completed"}
     findings = []
+    for name, result in rows.items():
+        objective = result.get("objective_evaluation")
+        if objective:
+            findings.append(
+                {
+                    "code": "EX_ANTE_OBJECTIVE",
+                    "message": f"{name}：事前目标判定为 {objective['status']}；收益、风险、成本、执行与数据条件分别核查。",
+                    "evidence": [name],
+                    "objective_evaluation": objective,
+                }
+            )
     base = rows.get("base")
     if base is None:
         return [
@@ -169,8 +180,8 @@ def _metric(value, percent=False):
     return f"{value:.2%}" if percent else f"{value:.4g}"
 
 
-def render_study(source: Path, output: Path) -> dict:
-    summary = load_study(source)
+def render_study(source: Path, output: Path, *, registry_path: Path | None = None) -> dict:
+    summary = load_study(source, registry_path=registry_path)
     findings = diagnose(summary)
     comparison = compare_results(summary["results"])
     root = source.parent.resolve()
@@ -258,7 +269,13 @@ def render_study(source: Path, output: Path) -> dict:
         else ""
     )
     validation_html = (
-        "<section><h2>滚动样本外验证</h2><p>本页指标由各折测试区间拼接；每折重新入场并计费。候选选择仅使用训练结果。</p>"
+        "<section><h2>滚动样本外验证</h2><p>"
+        + (
+            "连续账户：现金、持仓、订单和风险锁存跨折保留；选择路径另行完整重放。"
+            if summary["recipe"].get("validation", {}).get("account_policy") == "continuous"
+            else "独立账户：各折测试区间拼接；每折重新入场并计费。"
+        )
+        + "候选选择仅使用训练结果。</p>"
         '<a href="validation.html">查看逐折选择、样本外收益与多重比较</a></section>'
         if summary["recipe"].get("validation")
         else ""
@@ -296,8 +313,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("study", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--registry", type=Path)
     args = parser.parse_args()
-    render_study(args.study, args.output)
+    render_study(args.study, args.output, registry_path=args.registry)
 
 
 if __name__ == "__main__":
