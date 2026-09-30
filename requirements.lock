@@ -32,7 +32,7 @@ jsonschema-specifications==2025.9.1
     # via jsonschema
 kiwisolver==1.5.1
     # via matplotlib
-matplotlib==3.10.1
+matplotlib==3.10.9
     # via
     #   quant-report-hub (pyproject.toml)
     #   seaborn
@@ -54,7 +54,7 @@ packaging==26.3
     #   matplotlib
     #   pytest
     #   wheel
-pandas==2.3.2
+pandas==2.3.3
     # via
     #   quant-report-hub (pyproject.toml)
     #   quant-data-kit
@@ -66,7 +66,7 @@ pluggy==1.6.0
     # via
     #   pytest
     #   pytest-cov
-pyarrow==23.0.1
+pyarrow==25.0.1
     # via
     #   quant-report-hub (pyproject.toml)
     #   quant-data-kit
@@ -105,7 +105,7 @@ rpds-py==0.30.0
     #   -c requirements-constraints.txt
     #   jsonschema
     #   referencing
-ruff==0.16.5
+ruff==0.16.8
     # via quant-report-hub (pyproject.toml)
 seaborn==0.13.2
     # via quant-report-hub (pyproject.toml)
@@ -126,5 +126,5 @@ tzdata==2026.3
     # via pandas
 websockets==15.0.1
     # via quant-data-kit
-wheel==0.46.2
+wheel==0.48.0
     # via -r requirements-build.in
