@@ -42,6 +42,7 @@ def test_verified_report_escapes_source_and_explains_cost_difference(tmp_path):
             raise ValueError("missing prices")
         return {
             "scope": "retrospective",
+            "risk_summary": {"model_kind": "statistical_proxy", "target_rejections": 2},
             "metrics": {
                 "total_return": 0.01 * candidate["cost_multiplier"],
                 "max_drawdown": -0.01,
@@ -59,6 +60,7 @@ def test_verified_report_escapes_source_and_explains_cost_difference(tmp_path):
     html = (tmp_path / "report.html").read_text(encoding="utf-8")
     assert "&lt;script&gt;unsafe&lt;/script&gt;" in html
     assert "<script>unsafe</script>" not in html
+    assert "风险执行证据" in html and "target_rejections" in html
     assert not report["comparison"]["comparable"]
     assert any(r["code"] == "INCOMPLETE_STUDY" for r in report["findings"])
     assert any(r["code"] == "NET_BASELINE_DIFFERENCE" for r in report["findings"])
