@@ -102,6 +102,7 @@ def _cmd_attribute(args: argparse.Namespace) -> int:
         classifications=classifications,
         out_dir=args.out_dir or None,
         allow_same_day_positions=args.allow_same_day_positions,
+        cost_unit=args.cost_unit,
     )
     destination = Path(args.out_dir) if args.out_dir else Path(args.run_dir) / "attribution"
     print(f"generated {len(manifest.files)} attribution files -> {destination}")
@@ -216,6 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
     attribution.add_argument("--classifications", default="")
     attribution.add_argument("--out-dir", default="")
     attribution.add_argument("--allow-same-day-positions", action="store_true")
+    attribution.add_argument("--cost-unit", choices=["currency", "return"], default=None)
     attribution.set_defaults(func=_cmd_attribute)
 
     reconcile = sub.add_parser(
@@ -254,7 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8767)
     serve.add_argument("--poll-seconds", type=float, default=2.0)
-    serve.add_argument("--serve-root", default="", help="HTTP 根目录；默认取输入和输出的共同父目录")
+    serve.add_argument(
+        "--serve-root", default="", help="URL路径基准；仅开放看板、状态和明确列出的证据文件"
+    )
     serve.set_defaults(func=_cmd_serve)
 
     package = sub.add_parser("daily-package", help="导出 HTML、PDF、CSV 和异常清单日报包")

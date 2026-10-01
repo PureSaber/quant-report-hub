@@ -915,6 +915,7 @@ def test_legacy_attribution_optional_outputs_and_validation(tmp_path: Path):
         benchmark_positions=positions.drop(columns="strategy"),
         classifications=pd.DataFrame({"symbol": ["A"], "group": ["all"]}),
         allow_same_day_positions=True,
+        cost_unit="return",
     )
     assert {"factors.csv", "factor_summary.csv", "brinson.csv"} <= set(manifest.files)
     with pytest.raises(ValueError, match="必须唯一"):
