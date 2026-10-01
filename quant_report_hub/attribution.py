@@ -848,12 +848,34 @@ def holdings_attribution(
     cost_unit: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Attribute gross and net portfolio return to held securities and transaction costs."""
+    if cost_unit not in (None, "currency", "return"):
+        raise ValueError("cost_unit必须是currency或return")
+    cost_frame = None
+    if costs is not None and not costs.empty:
+        _require_columns(costs, {"date", "strategy", "total_cost"}, "costs")
+        cost_frame = _normalise_dates(costs)
+        cost_frame["total_cost"] = pd.to_numeric(cost_frame["total_cost"], errors="raise")
+        if not np.isfinite(cost_frame["total_cost"]).all():
+            raise ValueError("total_cost必须为有限数值")
+        if cost_unit is None and cost_frame["total_cost"].ne(0).any():
+            raise ValueError("非零成本必须通过manifest.tags.cost_unit或cost_unit显式声明单位")
+        cost_frame = cost_frame.groupby(["date", "strategy"], as_index=False)["total_cost"].sum()
     detail = _active_weights(
         positions,
         asset_returns,
         allow_same_day_positions=allow_same_day_positions,
         use_return_weights=use_return_weights,
     )
+    if cost_frame is not None:
+        charged = cost_frame.loc[cost_frame["total_cost"].ne(0), ["date", "strategy"]]
+        covered = detail[["date", "strategy"]].drop_duplicates()
+        if not charged.empty and (
+            covered.empty
+            or charged.merge(covered, on=["date", "strategy"], how="left", indicator=True)["_merge"]
+            .eq("left_only")
+            .any()
+        ):
+            raise ValueError("非零成本期间缺少可归因持仓，不能忽略成本")
     if detail.empty:
         return detail, pd.DataFrame()
     detail["missing_return"] = detail["return"].isna()
@@ -871,21 +893,11 @@ def holdings_attribution(
         )
         .sort_values(["strategy", "date"])
     )
-    if costs is not None and not costs.empty:
-        _require_columns(costs, {"date", "strategy", "total_cost"}, "costs")
-        cost_frame = _normalise_dates(costs)
-        cost_frame["total_cost"] = pd.to_numeric(cost_frame["total_cost"], errors="raise")
-        if not np.isfinite(cost_frame["total_cost"]).all():
-            raise ValueError("total_cost必须为有限数值")
-        cost_frame = cost_frame.groupby(["date", "strategy"], as_index=False)["total_cost"].sum()
+    if cost_frame is not None:
         summary = summary.merge(cost_frame, on=["date", "strategy"], how="left")
     else:
         summary["total_cost"] = 0.0
     summary["total_cost"] = summary["total_cost"].fillna(0.0)
-    if cost_unit not in (None, "currency", "return"):
-        raise ValueError("cost_unit必须是currency或return")
-    if cost_unit is None and summary["total_cost"].ne(0).any():
-        raise ValueError("非零成本必须通过manifest.tags.cost_unit或cost_unit显式声明单位")
     summary["cost_return"] = summary["total_cost"]
     if cost_unit == "currency" and summary["total_cost"].ne(0).any():
         if portfolio_returns is None or portfolio_returns.empty:

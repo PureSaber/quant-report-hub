@@ -226,7 +226,10 @@ def test_missing_declared_return_weights_are_rejected(tmp_path):
 
 
 def test_legacy_costs_require_unit_and_cannot_override_declared_unit(tmp_path):
-    assets = _write_period_run(tmp_path)
+    assets = _write_period_run(
+        tmp_path,
+        tags={"position_return_weight": "previous_decision_weight_for_return_attribution"},
+    )
     with pytest.raises(ValueError, match="显式声明单位"):
         attribute_standard_run(tmp_path, assets)
     assert not (tmp_path / "attribution").exists()
@@ -266,6 +269,37 @@ def test_currency_costs_require_known_opening_capital():
         cost_unit="currency",
     )
     assert summary.iloc[0]["cost_return"] == pytest.approx(0.1)
+
+
+@pytest.mark.parametrize(
+    "cost_unit,amount,message",
+    [
+        ("bananas", 10.0, "cost_unit"),
+        (None, 10.0, "显式声明单位"),
+        ("return", float("nan"), "有限数值"),
+        ("return", 10.0, "缺少可归因持仓"),
+    ],
+)
+def test_no_active_snapshot_cannot_bypass_cost_validation(cost_unit, amount, message):
+    positions = _positions().iloc[:1]
+    assets = _asset_returns().iloc[:1].assign(date="2025-01-01")
+    costs = pd.DataFrame({"date": ["2025-01-01"], "strategy": ["alpha"], "total_cost": [amount]})
+    with pytest.raises(ValueError, match=message):
+        holdings_attribution(positions, assets, costs=costs, cost_unit=cost_unit)
+
+
+def test_costs_outside_partially_covered_periods_are_not_silently_dropped():
+    costs = pd.DataFrame({"date": ["2025-01-01"], "strategy": ["alpha"], "total_cost": [10.0]})
+    with pytest.raises(ValueError, match="缺少可归因持仓"):
+        holdings_attribution(_positions(), _asset_returns(), costs=costs, cost_unit="currency")
+
+
+def test_empty_attribution_without_charges_remains_available():
+    positions = _positions().iloc[:1]
+    assets = _asset_returns().iloc[:1].assign(date="2025-01-01")
+    costs = pd.DataFrame({"date": ["2025-01-01"], "strategy": ["alpha"], "total_cost": [0.0]})
+    detail, summary = holdings_attribution(positions, assets, costs=costs)
+    assert detail.empty and summary.empty
 
 
 def test_brinson_uses_period_weights_without_shifting_benchmark():
@@ -327,7 +361,10 @@ def test_currency_costs_use_declared_return_capital_when_nav_is_an_index():
 def test_cli_can_attribute_legacy_cost_units(tmp_path):
     from quant_report_hub.cli import main
 
-    assets = _write_period_run(tmp_path)
+    assets = _write_period_run(
+        tmp_path,
+        tags={"position_return_weight": "previous_decision_weight_for_return_attribution"},
+    )
     asset_path = tmp_path / "asset_returns.csv"
     assets.to_csv(asset_path, index=False)
     assert (
@@ -345,4 +382,4 @@ def test_cli_can_attribute_legacy_cost_units(tmp_path):
         == 0
     )
     summary = pd.read_csv(tmp_path / "attribution" / "summary.csv")
-    assert summary["cost_return"].tolist() == pytest.approx([0.05])
+    assert summary["cost_return"].tolist() == pytest.approx([0.05, 0.05])
