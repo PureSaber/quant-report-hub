@@ -231,7 +231,8 @@ def test_equity_adapter_and_metric_edge_cases(tmp_path):
     assert EquityAdapter().load(tmp_path, "missing").portfolio.empty
     values = pd.Series([0.0, 0.01, -0.01])
     assert len(active_returns(values)) == 2
-    assert drawdown_relative(pd.Series([0.0, 1.0, 0.5])).isna().iloc[0]
+    assert drawdown_relative(pd.Series([0.0, 1.0, 0.5])).iloc[0] == 1.0
+    assert drawdown_relative(pd.Series([0.0, 1.0, 0.5]), initial_nav=None).isna().iloc[0]
     assert summarize_returns(pd.Series(dtype=float))["calmar"] is None
     assert rolling_sharpe(values, 2).isna().iloc[0]
     assert rolling_max_drawdown(pd.Series([1.0, 0.5]), 2).iloc[-1] == -0.5

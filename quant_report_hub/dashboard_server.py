@@ -7,8 +7,9 @@ import hashlib
 import json
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import cast
 
-from quant_report_hub.dashboard import write_dashboard_bundle
+from quant_report_hub.dashboard import EVIDENCE_FILES, write_dashboard_bundle
 from quant_report_hub.dashboard_exports import write_runtime_sidecars
 
 
@@ -36,6 +37,7 @@ def source_fingerprint(roots: list[Path], db: Path | None) -> str:
 
 
 def default_serve_root(roots: list[Path], out: Path, db: Path | None = None) -> Path:
+    """Choose a URL mount point, not a directory whose contents may be served."""
     paths = [out.resolve().parent, *(root.resolve() for root in roots)]
     if db:
         paths.append(db.resolve().parent)
@@ -48,8 +50,49 @@ def default_serve_root(roots: list[Path], out: Path, db: Path | None = None) -> 
     return common
 
 
+def published_files(snapshot: dict, dashboard: Path, sidecars: list[Path]) -> frozenset[Path]:
+    """Publish the dashboard and explicit evidence, never entire directories."""
+    paths = {dashboard.resolve(), *(path.resolve() for path in sidecars)}
+    runs: list[tuple[Path, Path]] = []
+    for source in snapshot["sources"]:
+        root = Path(source["root"]).resolve()
+        for item in [source["current"], *source["history"]]:
+            if item.get("path"):
+                runs.append((Path(item["path"]).absolute().parent, root))
+    for row in snapshot["experiments"]:
+        run = Path(row["run_path"]).absolute()
+        runs.append((run, run))
+    for run, root in runs:
+        for name, _label in EVIDENCE_FILES:
+            path = run / name
+            # A linked file or directory must not broaden the publication boundary.
+            if path.resolve() == path and path.is_relative_to(root) and path.is_file():
+                paths.add(path)
+    return frozenset(paths)
+
+
+class DashboardHTTPServer(ThreadingHTTPServer):
+    published_files: frozenset[Path] = frozenset()
+
+
 class DashboardHandler(SimpleHTTPRequestHandler):
-    """Static handler with no-cache headers for dashboard runtime files."""
+    """Loopback-only, file-allowlisted static HTTP handler."""
+
+    def send_head(self):
+        server = cast(DashboardHTTPServer, self.server)
+        port = server.server_port
+        authorities = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        if port == 80:
+            authorities.update({"127.0.0.1", "localhost"})
+        hosts = self.headers.get_all("Host", [])
+        if len(hosts) != 1 or hosts[0].lower() not in authorities:
+            self.send_error(403, "Untrusted Host")
+            return None
+        path = Path(self.translate_path(self.path)).absolute()
+        if path not in server.published_files or path.resolve() != path or not path.is_file():
+            self.send_error(404, "File not published")
+            return None
+        return super().send_head()
 
     def log_message(self, _format: str, *_args: object) -> None:
         # The browser polls the status sidecar every five seconds.  Suppress
@@ -57,6 +100,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         return
 
     def end_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         if self.path.endswith((".html", ".json")):
             self.send_header("Cache-Control", "no-store, max-age=0")
         super().end_headers()
@@ -73,6 +118,8 @@ def serve_dashboard(
     serve_root: Path | None = None,
 ) -> str:
     """Generate, serve, and regenerate the dashboard when inputs change."""
+    if host not in {"127.0.0.1", "localhost"}:
+        raise ValueError("Dashboard host must be 127.0.0.1 or localhost")
     roots = [root.resolve() for root in roots]
     out = out.resolve()
     db = db.resolve() if db else None
@@ -81,12 +128,13 @@ def serve_dashboard(
         raise ValueError("Dashboard output must be inside the HTTP serve root")
 
     destination, snapshot = write_dashboard_bundle(roots, out, db=db)
-    write_runtime_sidecars(snapshot, destination)
+    sidecars = write_runtime_sidecars(snapshot, destination)
     fingerprint = source_fingerprint(roots, db)
     handler = functools.partial(DashboardHandler, directory=str(serve_root))
     relative = destination.relative_to(serve_root).as_posix()
-    url = f"http://{host}:{port}/{relative}"
-    with ThreadingHTTPServer((host, port), handler) as server:
+    with DashboardHTTPServer((host, port), handler) as server:
+        server.published_files = published_files(snapshot, destination, sidecars)
+        url = f"http://{host}:{server.server_port}/{relative}"
         server.timeout = poll_seconds
         print(f"serving research dashboard -> {url}", flush=True)
         try:
@@ -96,7 +144,8 @@ def serve_dashboard(
                 if current == fingerprint:
                     continue
                 destination, snapshot = write_dashboard_bundle(roots, out, db=db)
-                write_runtime_sidecars(snapshot, destination)
+                sidecars = write_runtime_sidecars(snapshot, destination)
+                server.published_files = published_files(snapshot, destination, sidecars)
                 fingerprint = current
                 print(f"refreshed research dashboard -> {destination}", flush=True)
         except KeyboardInterrupt:

@@ -147,26 +147,28 @@ def _link(path: Path, label: str, out: Path) -> str:
     return f'<a href="{esc(href)}">{esc(label)}</a>'
 
 
+EVIDENCE_FILES = (
+    ("decision.json", "决策 JSON"),
+    ("standard/v2/run_manifest.json", "账本清单"),
+    ("standard/v2/config.json", "运行配置"),
+    ("standard/v2/metrics.json", "原始指标"),
+    ("standard/v2/orders.parquet", "订单"),
+    ("standard/v2/order_events.parquet", "订单事件"),
+    ("standard/v2/fills.parquet", "成交"),
+    ("standard/v2/costs.parquet", "实际成本"),
+    ("standard/v2/positions.parquet", "实际持仓"),
+    ("standard/v2/returns.parquet", "收益序列"),
+    ("standard/v2/cash_ledger.parquet", "现金账本"),
+    ("experiment.json", "实验登记"),
+    ("validation_folds.csv", "验证窗口"),
+    ("validation_fdr.csv", "因子检验"),
+)
+
+
 def evidence_links(run: Path, out: Path) -> str:
-    files = [
-        ("decision.json", "决策 JSON"),
-        ("standard/v2/run_manifest.json", "账本清单"),
-        ("standard/v2/config.json", "运行配置"),
-        ("standard/v2/metrics.json", "原始指标"),
-        ("standard/v2/orders.parquet", "订单"),
-        ("standard/v2/order_events.parquet", "订单事件"),
-        ("standard/v2/fills.parquet", "成交"),
-        ("standard/v2/costs.parquet", "实际成本"),
-        ("standard/v2/positions.parquet", "实际持仓"),
-        ("standard/v2/returns.parquet", "收益序列"),
-        ("standard/v2/cash_ledger.parquet", "现金账本"),
-        ("experiment.json", "实验登记"),
-        ("validation_folds.csv", "验证窗口"),
-        ("validation_fdr.csv", "因子检验"),
-    ]
     return (
         '<div class="evidence">'
-        + "".join(_link(run / p, label, out) for p, label in files)
+        + "".join(_link(run / p, label, out) for p, label in EVIDENCE_FILES)
         + "</div>"
     )
 

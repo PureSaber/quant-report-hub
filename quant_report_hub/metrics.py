@@ -21,15 +21,20 @@ def portfolio_nav(port: pd.DataFrame) -> pd.Series:
     return net_value_from_pct(port["daily_pnl_pct"])
 
 
-def drawdown_additive(nav: pd.Series) -> pd.Series:
-    """加性回撤：nav - cummax(nav)。"""
+def drawdown_additive(nav: pd.Series, *, initial_nav: float | None = 1.0) -> pd.Series:
+    """加性回撤，完整净值曲线包含期初本金；局部窗口可不设期初基线。"""
     peak = nav.cummax()
+    if initial_nav is not None:
+        peak = peak.clip(lower=initial_nav)
     return nav - peak
 
 
-def drawdown_relative(nav: pd.Series) -> pd.Series:
+def drawdown_relative(nav: pd.Series, *, initial_nav: float | None = 1.0) -> pd.Series:
     """相对回撤：1 - nav / cummax(nav)。"""
-    peak = nav.cummax().replace(0, np.nan)
+    peak = nav.cummax()
+    if initial_nav is not None:
+        peak = peak.clip(lower=initial_nav)
+    peak = peak.replace(0, np.nan)
     return 1.0 - nav / peak
 
 
@@ -49,7 +54,7 @@ def summarize_returns(daily_pnl_pct: pd.Series) -> dict[str, float | int | None]
     ann_ret = total_ret / n * TRADING_DAYS if n else 0.0
     std = float(r.std()) if n > 1 else 0.0
     sharpe = (float(r.mean()) / std * np.sqrt(TRADING_DAYS)) if std > 0 else 0.0
-    peak = cum.cummax()
+    peak = cum.cummax().clip(lower=0.0)
     dd = cum - peak
     max_dd = float(dd.min()) if n else 0.0
     calmar: float | None
@@ -82,7 +87,7 @@ def rolling_max_drawdown(nav: pd.Series, window: int) -> pd.Series:
         if x.size == 0:
             return np.nan
         s = pd.Series(x)
-        dd = drawdown_additive(s)
+        dd = drawdown_additive(s, initial_nav=None)
         return float(dd.min())
 
     return nav.rolling(window, min_periods=window).apply(_mdd, raw=True)

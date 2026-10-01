@@ -89,6 +89,8 @@ quant-report daily-package --decision-root ../review-runs --lab-db reports/exper
 - 过期、阻断、仅观察及历史记录不显示当前拟调仓。浏览器每15秒检查有效期；JavaScript关闭时拟调仓默认隐藏。
 - `dashboard`发布静态HTML以及相邻的`*.alerts.json`、`*.status.json`；`serve`轮询决策、账本和实验索引，
   发现变化后原子重建三个文件，已打开页面通过状态文件自动刷新。
+  服务仅绑定`127.0.0.1`或`localhost`并校验请求Host；只开放看板、状态文件及页面列出的证据类型，
+  不开放目录列表、实验数据库、其他仓库文件或符号链接。`--serve-root`仅决定URL路径基准，不授予目录访问权限。
   报告生成成功只表示HTML已生成，不能根据命令退出码认定策略或数据可用，应查看各来源状态。
 - SQLite索引以`mode=ro`读取，不创建／更新实验数据库。存在标准产物时重新校验并读取来源指标，
   无法验证时不采用缓存；无标准产物的旧实验明确标记为未校验缓存。
@@ -153,6 +155,15 @@ quant-report attribute ^
 ```
 
 ### `standard/v2`精确归因与NAV对账
+
+`standard/v1`归因读取manifest中的权重和成本语义。声明
+`position_return_weight=previous_decision_weight_for_return_attribution`时，使用同日
+`return_weight`，缺失日期不沿用旧值；普通持仓快照仍默认使用上一期。
+`tags.cost_unit=currency`表示成本金额，按各策略期初NAV换算为`cost_return`；
+收益按配置资本计算而NAV仅为指数的产物，须提供同币种的`returns.return_capital`作为分母。
+`tags.cost_unit=return`表示成本已是收益率。首期NAV由期末NAV及净收益率反推，
+首期全损等不可反推场景须提供`opening_nav`。非零成本没有单位声明的旧产物，
+须显式传入`--cost-unit currency`或`--cost-unit return`，且不能覆盖源产物的声明。
 
 `reconcile-v2`在`run/standard`之外的独立报告目录发布`attribution.csv`、
 `reconciliation.csv`和带hash的`manifest.json`；输出目录等于或位于`run/standard`

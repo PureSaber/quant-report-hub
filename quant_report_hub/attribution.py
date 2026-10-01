@@ -767,6 +767,7 @@ class AttributionManifest:
     position_timing: str
     files: dict[str, str]
     row_counts: dict[str, int]
+    cost_unit: str | None = None
 
 
 def _require_columns(frame: pd.DataFrame, required: set[str], name: str) -> None:
@@ -786,12 +787,18 @@ def _active_weights(
     asset_returns: pd.DataFrame,
     *,
     allow_same_day_positions: bool,
+    use_return_weights: bool = False,
 ) -> pd.DataFrame:
     """Align complete position snapshots to later asset-return periods without look-ahead."""
     _require_columns(positions, {"date", "strategy", "symbol", "weight"}, "positions")
     _require_columns(asset_returns, {"date", "symbol", "return"}, "asset_returns")
     pos = _normalise_dates(positions)
     ret = _normalise_dates(asset_returns)
+    if use_return_weights:
+        _require_columns(pos, {"return_weight"}, "positions")
+        pos["weight"] = pd.to_numeric(pos["return_weight"], errors="raise")
+        if not np.isfinite(pos["weight"]).all():
+            raise ValueError("return_weight必须为有限数值")
     pos["weight"] = pd.to_numeric(pos["weight"], errors="coerce")
     ret["return"] = pd.to_numeric(ret["return"], errors="coerce")
     if pos.duplicated(["date", "strategy", "symbol"]).any():
@@ -803,12 +810,15 @@ def _active_weights(
     rows: list[pd.DataFrame] = []
     for strategy, strategy_pos in pos.groupby("strategy", sort=False):
         snapshot_dates = np.array(sorted(strategy_pos["date"].unique()), dtype="datetime64[ns]")
-        side = "right" if allow_same_day_positions else "left"
+        side = "right" if allow_same_day_positions or use_return_weights else "left"
         indices = np.searchsorted(snapshot_dates, return_dates, side=side) - 1
         for return_date, snapshot_idx in zip(return_dates, indices, strict=True):
             if snapshot_idx < 0:
                 continue
             snapshot_date = pd.Timestamp(snapshot_dates[snapshot_idx])
+            if use_return_weights and snapshot_date != pd.Timestamp(return_date):
+                # Period-specific return weights must never be carried into another period.
+                continue
             active = strategy_pos.loc[
                 strategy_pos["date"].eq(snapshot_date), ["symbol", "weight"]
             ].copy()
@@ -834,13 +844,38 @@ def holdings_attribution(
     costs: pd.DataFrame | None = None,
     portfolio_returns: pd.DataFrame | None = None,
     allow_same_day_positions: bool = False,
+    use_return_weights: bool = False,
+    cost_unit: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Attribute gross and net portfolio return to held securities and transaction costs."""
+    if cost_unit not in (None, "currency", "return"):
+        raise ValueError("cost_unit必须是currency或return")
+    cost_frame = None
+    if costs is not None and not costs.empty:
+        _require_columns(costs, {"date", "strategy", "total_cost"}, "costs")
+        cost_frame = _normalise_dates(costs)
+        cost_frame["total_cost"] = pd.to_numeric(cost_frame["total_cost"], errors="raise")
+        if not np.isfinite(cost_frame["total_cost"]).all():
+            raise ValueError("total_cost必须为有限数值")
+        if cost_unit is None and cost_frame["total_cost"].ne(0).any():
+            raise ValueError("非零成本必须通过manifest.tags.cost_unit或cost_unit显式声明单位")
+        cost_frame = cost_frame.groupby(["date", "strategy"], as_index=False)["total_cost"].sum()
     detail = _active_weights(
         positions,
         asset_returns,
         allow_same_day_positions=allow_same_day_positions,
+        use_return_weights=use_return_weights,
     )
+    if cost_frame is not None:
+        charged = cost_frame.loc[cost_frame["total_cost"].ne(0), ["date", "strategy"]]
+        covered = detail[["date", "strategy"]].drop_duplicates()
+        if not charged.empty and (
+            covered.empty
+            or charged.merge(covered, on=["date", "strategy"], how="left", indicator=True)["_merge"]
+            .eq("left_only")
+            .any()
+        ):
+            raise ValueError("非零成本期间缺少可归因持仓，不能忽略成本")
     if detail.empty:
         return detail, pd.DataFrame()
     detail["missing_return"] = detail["return"].isna()
@@ -858,16 +893,42 @@ def holdings_attribution(
         )
         .sort_values(["strategy", "date"])
     )
-    if costs is not None and not costs.empty:
-        _require_columns(costs, {"date", "strategy", "total_cost"}, "costs")
-        cost_frame = _normalise_dates(costs)
-        cost_frame["total_cost"] = pd.to_numeric(cost_frame["total_cost"], errors="coerce")
-        cost_frame = cost_frame.groupby(["date", "strategy"], as_index=False)["total_cost"].sum()
+    if cost_frame is not None:
         summary = summary.merge(cost_frame, on=["date", "strategy"], how="left")
     else:
         summary["total_cost"] = 0.0
     summary["total_cost"] = summary["total_cost"].fillna(0.0)
-    summary["net_attributed_return"] = summary["gross_attributed_return"] - summary["total_cost"]
+    summary["cost_return"] = summary["total_cost"]
+    if cost_unit == "currency" and summary["total_cost"].ne(0).any():
+        if portfolio_returns is None or portfolio_returns.empty:
+            raise ValueError("金额成本归因需要portfolio_returns提供期初NAV")
+        _require_columns(portfolio_returns, {"date", "strategy", "net_return"}, "portfolio_returns")
+        capital = _normalise_dates(portfolio_returns).sort_values(["strategy", "date"])
+        if capital.duplicated(["date", "strategy"]).any():
+            raise ValueError("portfolio_returns在date/strategy上必须唯一")
+        basis_column = "return_capital" if "return_capital" in capital else "opening_nav"
+        if basis_column not in capital:
+            _require_columns(capital, {"nav"}, "portfolio_returns")
+            capital["nav"] = pd.to_numeric(capital["nav"], errors="raise")
+            capital["opening_nav"] = capital.groupby("strategy")["nav"].shift()
+            first = capital.groupby("strategy").cumcount().eq(0)
+            growth = 1 + pd.to_numeric(capital["net_return"], errors="raise")
+            capital.loc[first, "opening_nav"] = capital.loc[first, "nav"] / growth.loc[
+                first
+            ].replace(0, np.nan)
+        capital[basis_column] = pd.to_numeric(capital[basis_column], errors="raise")
+        summary = summary.merge(
+            capital[["date", "strategy", basis_column]],
+            on=["date", "strategy"],
+            how="left",
+            validate="one_to_one",
+        )
+        charged = summary["total_cost"].ne(0)
+        opening = summary.loc[charged, basis_column]
+        if not (np.isfinite(opening) & opening.gt(0)).all():
+            raise ValueError("金额成本归因需要正的有限本金；请提供return_capital或opening_nav")
+        summary.loc[charged, "cost_return"] = summary.loc[charged, "total_cost"] / opening
+    summary["net_attributed_return"] = summary["gross_attributed_return"] - summary["cost_return"]
 
     if portfolio_returns is not None and not portfolio_returns.empty:
         _require_columns(
@@ -878,7 +939,9 @@ def holdings_attribution(
         observed = _normalise_dates(portfolio_returns)[
             ["date", "strategy", "gross_return", "net_return"]
         ].copy()
-        summary = summary.merge(observed, on=["date", "strategy"], how="left")
+        summary = summary.merge(
+            observed, on=["date", "strategy"], how="left", validate="one_to_one"
+        )
         summary["gross_residual"] = summary["gross_return"] - summary["gross_attributed_return"]
         summary["net_residual"] = summary["net_return"] - summary["net_attributed_return"]
     return detail, summary
@@ -947,6 +1010,7 @@ def brinson_fachler_attribution(
     classifications: pd.DataFrame,
     *,
     allow_same_day_positions: bool = False,
+    use_return_weights: bool = False,
 ) -> pd.DataFrame:
     """Compute Brinson-Fachler allocation, selection and interaction effects."""
     _require_columns(classifications, {"symbol", "group"}, "classifications")
@@ -957,6 +1021,7 @@ def brinson_fachler_attribution(
         portfolio_positions,
         asset_returns,
         allow_same_day_positions=allow_same_day_positions,
+        use_return_weights=use_return_weights,
     )
     b_aligned = _active_weights(
         benchmark,
@@ -1033,6 +1098,7 @@ def attribute_standard_run(
     out_dir: str | Path | None = None,
     allow_same_day_positions: bool = False,
     slippage_references: pd.DataFrame | None = None,
+    cost_unit: str | None = None,
 ) -> AttributionManifest | V2AttributionManifest:
     """Prefer an intact v2 run and fall back to v1 only when v2 does not exist."""
     run_path = Path(run_dir)
@@ -1049,7 +1115,15 @@ def attribute_standard_run(
         raise FileNotFoundError(f"标准运行产物缺失: {missing}")
     from quant_lab.contracts import load_and_validate_run
 
-    load_and_validate_run(run_path)
+    source_manifest = load_and_validate_run(run_path)
+    declared_unit = source_manifest.tags.get("cost_unit")
+    if cost_unit is not None and declared_unit is not None and cost_unit != declared_unit:
+        raise ValueError("cost_unit与源manifest声明冲突")
+    cost_unit = declared_unit if cost_unit is None else cost_unit
+    weight_semantics = source_manifest.tags.get("position_return_weight")
+    if weight_semantics not in (None, "previous_decision_weight_for_return_attribution"):
+        raise ValueError(f"不支持的position_return_weight语义: {weight_semantics}")
+    use_return_weights = weight_semantics is not None
 
     positions = pd.read_csv(standard / "positions.csv")
     returns = pd.read_csv(standard / "returns.csv")
@@ -1060,6 +1134,8 @@ def attribute_standard_run(
         costs=costs,
         portfolio_returns=returns,
         allow_same_day_positions=allow_same_day_positions,
+        use_return_weights=use_return_weights,
+        cost_unit=cost_unit,
     )
     outputs: dict[str, pd.DataFrame] = {
         "holdings": holdings,
@@ -1086,6 +1162,7 @@ def attribute_standard_run(
             asset_returns,
             classifications,
             allow_same_day_positions=allow_same_day_positions,
+            use_return_weights=use_return_weights,
         )
 
     destination = Path(out_dir) if out_dir is not None else run_path / "attribution"
@@ -1100,9 +1177,16 @@ def attribute_standard_run(
     manifest = AttributionManifest(
         schema_version="1.0",
         run_dir=str(run_path.resolve()),
-        position_timing="same_day" if allow_same_day_positions else "prior_snapshot",
+        position_timing=(
+            "same_period_return_weight"
+            if use_return_weights
+            else "same_day"
+            if allow_same_day_positions
+            else "prior_snapshot"
+        ),
         files=files,
         row_counts=row_counts,
+        cost_unit=cost_unit,
     )
     (destination / "manifest.json").write_text(
         json.dumps(asdict(manifest), ensure_ascii=False, indent=2), encoding="utf-8"
