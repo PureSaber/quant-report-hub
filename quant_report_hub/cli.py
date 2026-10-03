@@ -140,6 +140,7 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
             [Path(root) for root in args.decision_root],
             Path(args.out),
             db=Path(args.lab_db) if args.lab_db else None,
+            paired_evidence=[(Path(p), sha) for p, sha in args.paired_evidence],
         )
         sidecars = write_runtime_sidecars(snapshot, destination)
     except (OSError, ValueError) as exc:
@@ -163,6 +164,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
             port=args.port,
             poll_seconds=args.poll_seconds,
             serve_root=Path(args.serve_root) if args.serve_root else None,
+            paired_evidence=[(Path(p), sha) for p, sha in args.paired_evidence],
         )
     except (OSError, ValueError) as exc:
         print(f"serve: {exc}", file=sys.stderr)
@@ -178,6 +180,7 @@ def _cmd_daily_package(args: argparse.Namespace) -> int:
             roots,
             out_dir / "index.html",
             db=Path(args.lab_db) if args.lab_db else None,
+            paired_evidence=[(Path(p), sha) for p, sha in args.paired_evidence],
         )
         outputs = write_daily_package(
             snapshot,
@@ -253,7 +256,7 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument(
         "--decision-root",
         action="append",
-        required=True,
+        default=[],
         help="包含 latest.json 和运行子目录的路径；可重复指定多个目录",
     )
     dashboard.add_argument("--lab-db", default="", help="只读 quant-lab SQLite 实验索引")
@@ -264,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument(
         "--decision-root",
         action="append",
-        required=True,
+        default=[],
         help="包含 latest.json 和运行子目录的路径；可重复指定多个目录",
     )
     serve.add_argument("--lab-db", default="", help="只读 quant-lab SQLite 实验索引")
@@ -281,7 +284,7 @@ def build_parser() -> argparse.ArgumentParser:
     package.add_argument(
         "--decision-root",
         action="append",
-        required=True,
+        default=[],
         help="包含 latest.json 和运行子目录的路径；可重复指定多个目录",
     )
     package.add_argument("--lab-db", default="", help="只读 quant-lab SQLite 实验索引")
@@ -289,6 +292,15 @@ def build_parser() -> argparse.ArgumentParser:
     package.add_argument("--browser", default="", help="用于打印 PDF 的 Edge/Chromium 可执行文件")
     package.add_argument("--no-pdf", action="store_true", help="仅在无浏览器的自动化环境跳过 PDF")
     package.set_defaults(func=_cmd_daily_package)
+    for command in (dashboard, serve, package):
+        command.add_argument(
+            "--paired-evidence",
+            nargs=2,
+            action="append",
+            default=[],
+            metavar=("JSON", "SHA256"),
+            help="已固定哈希的paired-evidence.json；重复指定各测试折，保留失败折并核验原生账本",
+        )
     source = sub.add_parser("source-resolution", help="核验来源裁决并列出需要重跑的产物")
     source.add_argument("--decision", required=True)
     source.set_defaults(func=_cmd_source_resolution)
@@ -298,6 +310,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command in {"dashboard", "serve", "daily-package"} and not (
+        args.decision_root or args.lab_db or args.paired_evidence
+    ):
+        parser.error("至少指定决策目录、实验索引或配对研究证据")
     if args.command == "run":
         groups = plot_groups_for(args.adapter)
         if args.plots not in groups:

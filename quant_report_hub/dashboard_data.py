@@ -354,7 +354,15 @@ def read_experiments(db: Path | None, limit: int = MAX_RUNS) -> tuple[list[dict]
         return [], f"实验索引不可用：{exc}"
 
 
-def dashboard_snapshot(roots: list[Path], db: Path | None, now: datetime | None = None) -> dict:
+def dashboard_snapshot(
+    roots: list[Path],
+    db: Path | None,
+    now: datetime | None = None,
+    *,
+    paired_evidence: list[tuple[Path, str]] | None = None,
+) -> dict:
+    from quant_report_hub.paired_data import paired_snapshot
+
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         raise ValueError("Dashboard time must include timezone")
@@ -375,4 +383,5 @@ def dashboard_snapshot(roots: list[Path], db: Path | None, now: datetime | None 
         "index_notice": notice,
         "alerts": alerts,
         "accounts": accounts,
+        "paired_research": paired_snapshot(paired_evidence or []),
     }

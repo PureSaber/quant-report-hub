@@ -12,6 +12,9 @@ from urllib.parse import quote
 
 from quant_report_hub.dashboard_assets import CSS, SCRIPT
 from quant_report_hub.dashboard_data import dashboard_snapshot
+from quant_report_hub.paired_view import CSS as PAIRED_CSS
+from quant_report_hub.paired_view import SCRIPT as PAIRED_SCRIPT
+from quant_report_hub.paired_view import render_paired
 
 LABELS = {
     "paper_ready": "可继续模拟",
@@ -552,7 +555,33 @@ def experiment_panels(rows: list[dict], out: Path) -> tuple[str, str]:
 
 
 def render_dashboard(snapshot: dict, out: Path) -> str:
+    paired = render_paired(snapshot.get("paired_research"))
     sources = snapshot["sources"]
+    paired_only = bool(paired) and not sources and not snapshot["experiments"]
+    hero_title = "查看收益差额，核对研究证据。" if paired_only else "先处理异常，再核对调仓。"
+    intro = (
+        "比较各测试折、单项干预和三个基准；完整保留负面结果与未解释差异。"
+        if paired_only
+        else "集中查看最新决策、相对变化、模拟执行和前向效果；所有数值都来自只读研究产物。"
+    )
+    links = [
+        ("decisions", "决策收件箱"),
+        ("alerts", "风险与异常"),
+        ("accounts", "账户汇总"),
+        ("current-details", "决策详情"),
+        ("experiments", "实验与对比"),
+        ("history", "历史记录"),
+    ]
+    if paired_only:
+        links = []
+    if paired:
+        links.append(("paired-research", "反事实与基准"))
+    navigation = "".join(f'<a href="#{anchor}">{label}</a>' for anchor, label in links)
+    source_count = (
+        f"{len(snapshot['paired_research']['folds'])}个配对研究区间"
+        if paired_only
+        else f"{len(sources)}个决策目录 · {len(snapshot['experiments'])}个实验"
+    )
     current = "".join(decision_panel(source["current"], out) for source in sources)
     inbox = decision_inbox(sources)
     history = []
@@ -591,9 +620,9 @@ def render_dashboard(snapshot: dict, out: Path) -> str:
         for source in sources
     )
     status_file = out.with_suffix(out.suffix + ".status.json").name
-    return f"""<!doctype html><html lang="zh-CN" data-build-id="{esc(snapshot["generated_at"])}" data-refresh-url="{esc(status_file)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Quant Report Hub · 决策看板</title><style>{CSS}</style></head>
-<body><div class="shell"><header><div class="brand"><b>Q</b>quant-report-hub</div><nav aria-label="主导航"><a href="#decisions">决策收件箱</a><a href="#alerts">风险与异常</a><a href="#accounts">账户汇总</a><a href="#current-details">决策详情</a><a href="#experiments">实验与对比</a><a href="#history">历史记录</a></nav></header>
-<main><section class="hero"><div><p class="eyebrow">RESEARCH / PAPER / EVIDENCE</p><h1>先处理异常，再核对调仓。</h1><p class="intro">集中查看最新决策、相对变化、模拟执行和前向效果；所有数值都来自只读研究产物。</p></div><div class="meta">{len(sources)} 个决策目录 · {len(snapshot["experiments"])} 个实验<br>快照生成于 {esc(snapshot["generated_at"])}<br><span data-refresh-state>静态快照</span></div></section>
+    return f"""<!doctype html><html lang="zh-CN" data-build-id="{esc(snapshot["generated_at"])}" data-refresh-url="{esc(status_file)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Quant Report Hub · 决策看板</title><style>{CSS}{PAIRED_CSS}</style></head>
+<body><div class="shell"><header><div class="brand"><b>Q</b>quant-report-hub</div><nav aria-label="主导航">{navigation}</nav></header>
+<main class="{"paired-only" if paired_only else ""}"><section class="hero"><div><p class="eyebrow">RESEARCH / PAPER / EVIDENCE</p><h1>{hero_title}</h1><p class="intro">{intro}</p></div><div class="meta">{source_count}<br>快照生成于 {esc(snapshot["generated_at"])}<br><span data-refresh-state>静态快照</span></div></section>
 <div class="stats">{stats}</div><noscript><p class="notice warning">启用 JavaScript 后可筛选、对比及检查实时有效期。拟调仓默认隐藏；其他来源信息仍可阅读。</p></noscript>
 <div class="toolbar"><label>搜索 <input id="search" type="search" placeholder="项目、策略或运行编号"></label><label>来源 <select id="source-filter"><option value="all">全部来源</option>{source_options}</select></label><label>状态 <select id="status-filter"><option value="all">全部状态</option><option value="paper_ready">可继续模拟</option><option value="observe">仅观察</option><option value="blocked">运行阻断</option><option value="invalid">来源不可用</option><option value="expired">已过期</option><option value="critical">严重异常</option><option value="warning">提醒</option><option value="info">进度</option><option value="verified">实验产物已校验</option><option value="cached">实验索引缓存</option></select></label><button id="reset-filters" class="ghost-button">重置</button><small>本地只读 · 不运行策略或发送订单</small></div>
 <section id="decisions"><div class="section-head"><h2>决策收件箱</h2><p>按异常、阻断、过期和可模拟状态排序</p></div>{inbox}</section>
@@ -602,22 +631,31 @@ def render_dashboard(snapshot: dict, out: Path) -> str:
 <section id="current-details"><div class="section-head"><h2>最新决策详情</h2><p>每个目录以 latest.json 为准</p></div>{current}</section>
 <section id="experiments"><div class="section-head"><h2>实验与证据</h2><button id="compare-button" class="compare-button" disabled>对比所选实验（0）</button></div><p class="meta">索引仅用于定位运行。存在标准产物时重新校验来源；损坏或缺失的产物不采用缓存指标。</p><p class="meta">{esc(snapshot["index_notice"])}</p>{experiments}</section>
 <section id="comparison" hidden><div class="section-head"><h2>所选实验对比</h2></div><p class="notice">逐项并列展示原始指标，不进行收益排名。比较前请核对配置中的观察区间、币种、收益频率与成本假设。</p>{comparisons}</section>
-<section id="history"><div class="section-head"><h2>历史记录</h2><p>历史拟调仓不作为当前操作展示</p></div>{"".join(history)}</section></main>
-<footer>Quant Report Hub · 研究与模拟用途。账本完整性校验不等于策略投资有效性。看板不修改决策、实验索引或标准产物；证据链接需要原文件留在本机。</footer></div><script>{SCRIPT}</script></body></html>"""
+{paired}<section id="history"><div class="section-head"><h2>历史记录</h2><p>历史拟调仓不作为当前操作展示</p></div>{"".join(history)}</section></main>
+<footer>Quant Report Hub · 研究与模拟用途。账本完整性校验不等于策略投资有效性。看板不修改决策、实验索引或标准产物；证据链接需要原文件留在本机。</footer></div><script>{SCRIPT}{PAIRED_SCRIPT}</script></body></html>"""
 
 
 def write_dashboard_bundle(
-    roots: list[Path], out: Path, *, db: Path | None = None, now: datetime | None = None
+    roots: list[Path],
+    out: Path,
+    *,
+    db: Path | None = None,
+    now: datetime | None = None,
+    paired_evidence: list[tuple[Path, str]] | None = None,
 ) -> tuple[Path, dict]:
     out = out.resolve()
     roots = [root.resolve() for root in roots]
+    if any(
+        out.is_relative_to(Path(source).resolve().parent) for source, _ in paired_evidence or []
+    ):
+        raise ValueError("Dashboard output must be outside paired evidence directories")
     # A report cannot overwrite an input pointer, source run, database or the
     # immutable ledger. Publication in each source root is disallowed entirely.
     if out.suffix.lower() != ".html" or any(out.is_relative_to(root) for root in roots):
         raise ValueError("Dashboard output must be an HTML file outside decision roots")
     if db and (out == db.resolve() or out.is_relative_to(db.resolve())):
         raise ValueError("Dashboard output cannot overwrite the experiment database")
-    snapshot = dashboard_snapshot(roots, db, now)
+    snapshot = dashboard_snapshot(roots, db, now, paired_evidence=paired_evidence)
     for row in snapshot["experiments"]:
         if out.is_relative_to(Path(row["run_path"]).resolve()):
             raise ValueError("Dashboard output cannot overwrite an indexed run")
@@ -638,7 +676,12 @@ def write_dashboard_bundle(
 
 
 def write_dashboard(
-    roots: list[Path], out: Path, *, db: Path | None = None, now: datetime | None = None
+    roots: list[Path],
+    out: Path,
+    *,
+    db: Path | None = None,
+    now: datetime | None = None,
+    paired_evidence: list[tuple[Path, str]] | None = None,
 ) -> Path:
     """Write the HTML dashboard and preserve the historical public return type."""
-    return write_dashboard_bundle(roots, out, db=db, now=now)[0]
+    return write_dashboard_bundle(roots, out, db=db, now=now, paired_evidence=paired_evidence)[0]
