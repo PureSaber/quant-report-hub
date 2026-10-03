@@ -8,7 +8,7 @@ from pathlib import Path
 
 MINIMUM_TOTAL = 80.0
 MINIMUM_CORE_BRANCH = 90.0
-CORE_MODULES = ("quant_report_hub/attribution.py",)
+CORE_MODULES = ("quant_report_hub/attribution.py", "quant_report_hub/cash_attribution.py")
 
 
 def _percentage(numerator: int, denominator: int) -> float:

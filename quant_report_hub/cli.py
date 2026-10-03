@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from quant_report_hub.attribution import attribute_standard_run, reconcile_standard_run_v2
+from quant_report_hub.cash_attribution import reconcile_cash_ledger_v2
 from quant_report_hub.config import VizConfig, plot_groups_for
 from quant_report_hub.context import CompareContext, PlotContext
 from quant_report_hub.dashboard import write_dashboard_bundle
@@ -123,6 +124,16 @@ def _cmd_reconcile_v2(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_cash_attribution(args: argparse.Namespace) -> int:
+    try:
+        manifest = reconcile_cash_ledger_v2(args.run_dir, out_dir=args.out_dir)
+    except (OSError, ValueError) as exc:
+        print(f"cash-attribution: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _cmd_dashboard(args: argparse.Namespace) -> int:
     try:
         destination, snapshot = write_dashboard_bundle(
@@ -232,6 +243,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="包含因果reference价格、可得时间、乘数及FX的CSV；存在slippage成本时必填",
     )
     reconcile.set_defaults(func=_cmd_reconcile_v2)
+
+    cash = sub.add_parser("cash-attribution", help="从原生现金证券账本重建期间损益和分红应收")
+    cash.add_argument("--run-dir", required=True)
+    cash.add_argument("--out-dir", required=True, help="尚不存在且位于源运行目录之外的报告目录")
+    cash.set_defaults(func=_cmd_cash_attribution)
 
     dashboard = sub.add_parser("dashboard", help="生成决策、实验与证据统一研究看板")
     dashboard.add_argument(

@@ -51,6 +51,7 @@ schemas = [
     { id = "quant.decision/v1", version = "1.0.0" },
     # Separately published attribution/reconciliation report manifest.
     { id = "quant-report-hub.attribution-report", version = "2.0" },
+    { id = "quant-report-hub.cash-ledger-attribution", version = "1.0" },
 ]
 lock-files = ["requirements.lock"]
 
