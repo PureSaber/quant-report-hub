@@ -55,7 +55,13 @@ def test_verified_report_escapes_source_and_explains_cost_difference(tmp_path):
             "limitations": [],
         }
 
-    execute_study(recipe(), tmp_path, identity={"code": "a"}, data_identity={}, executor=executor)
+    execute_study(
+        recipe(),
+        tmp_path,
+        identity={"code": "a"},
+        data_identity={"code": "fixture"},
+        executor=executor,
+    )
     report = render_study(tmp_path / "study.json", tmp_path / "report.html")
     html = (tmp_path / "report.html").read_text(encoding="utf-8")
     assert "&lt;script&gt;unsafe&lt;/script&gt;" in html
@@ -83,6 +89,65 @@ def test_no_baseline_and_fixture_do_not_claim_alpha():
     assert diagnose({"results": [result]})[0]["code"] == "FIXTURE_ONLY"
 
 
+@pytest.mark.parametrize("failed_name", ["base", "delay_1"])
+@pytest.mark.parametrize("scope", ["fixture-only", "retrospective"])
+def test_failed_candidate_is_visible_even_when_diagnostics_return_early(
+    tmp_path, failed_name, scope
+):
+    def executor(spec, candidate, out):
+        if candidate["name"] == failed_name:
+            raise ValueError("<missing price>")
+        return {"scope": scope, "metrics": {"total_return": 0}, "comparison": {}}
+
+    execute_study(
+        recipe(),
+        tmp_path,
+        identity={"code": "fixture"},
+        data_identity={"code": "fixture"},
+        executor=executor,
+    )
+    report = render_study(tmp_path / "study.json", tmp_path / "report.html")
+    assert report["completion"]["statistical_conclusion"] == "unavailable_incomplete_candidates"
+    assert report["completion"]["incomplete_candidates"] == [failed_name]
+    assert any(row["code"] == "INCOMPLETE_STUDY" for row in report["findings"])
+    html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert "候选族统计结论不可用" in html
+    assert "&lt;missing price&gt;" in html and "<missing price>" not in html
+
+
+def test_successful_retry_keeps_failed_attempt_visible_without_claiming_family_pass(tmp_path):
+    fail = True
+
+    def executor(spec, candidate, out):
+        if fail and candidate["name"] == "base":
+            raise ValueError("retained first failure")
+        return {"scope": "retrospective", "metrics": {"total_return": 0}, "comparison": {}}
+
+    execute_study(
+        recipe(),
+        tmp_path,
+        identity={"code": "fixture"},
+        data_identity={"code": "fixture"},
+        executor=executor,
+    )
+    fail = False
+    execute_study(
+        recipe(),
+        tmp_path,
+        identity={"code": "fixture"},
+        data_identity={"code": "fixture"},
+        executor=executor,
+    )
+    report = render_study(tmp_path / "study.json", tmp_path / "report.html")
+    completion = report["completion"]
+    assert completion["current_candidates_complete"]
+    assert completion["statistical_conclusion"] == "requires_separate_family_evidence"
+    assert len(completion["unsuccessful_attempts"]) == 1
+    assert completion["unsuccessful_attempts"][0]["candidate"] == "base"
+    html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert "retained first failure" in html and "重试成功不删除旧尝试" in html
+
+
 @pytest.mark.parametrize("tamper", ["omit_failed", "reorder", "change_time"])
 def test_report_verifies_entire_attempt_history_after_retry(tmp_path, tamper):
     fail_base = True
@@ -92,9 +157,21 @@ def test_report_verifies_entire_attempt_history_after_retry(tmp_path, tamper):
             raise ValueError("first attempt failed")
         return {"scope": "retrospective", "metrics": {"total_return": 0}, "comparison": {}}
 
-    execute_study(recipe(), tmp_path, identity={"code": "a"}, data_identity={}, executor=executor)
+    execute_study(
+        recipe(),
+        tmp_path,
+        identity={"code": "a"},
+        data_identity={"code": "fixture"},
+        executor=executor,
+    )
     fail_base = False
-    execute_study(recipe(), tmp_path, identity={"code": "a"}, data_identity={}, executor=executor)
+    execute_study(
+        recipe(),
+        tmp_path,
+        identity={"code": "a"},
+        data_identity={"code": "fixture"},
+        executor=executor,
+    )
     path = tmp_path / "study.json"
     summary = load_study(path)
     assert summary["failed"] == 0
