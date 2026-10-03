@@ -156,6 +156,29 @@ quant-report attribute ^
 
 ### `standard/v2`精确归因与NAV对账
 
+原生现金证券账本可使用独立的会计归因命令：
+
+```bash
+quant-report cash-attribution --run-dir /path/to/run --out-dir /path/to/new-report
+```
+
+此命令先完整验证`standard/v2`的hash、schema和血缘，再从期初现金分录重建每个事件时点的
+现金、证券数量和分红应收，核对持仓估值、NAV及来源净收益率。它按来源`returns.event_time`
+划分期间，因此可以将逐事件快照对齐到每日收益，并保留首日交易与费用。
+分红在权益确认时计收益，支付时只转为现金；持仓清零后的应收也继续核验。
+
+报告包括`instrument_pnl.csv`、`period_reconciliation.csv`、`event_reconciliation.csv`、
+`fee_details.csv`、`report.html`和带文件摘要的`manifest.json`。
+全部账本金额用`Decimal`重建，现金、数量、估值、应收及损益守恒要求精确相等；仅对来源
+浮点净收益率允许`1e-12`误差。输出必须在源运行目录之外且尚不存在，核验失败时不发布报告。
+
+适用范围为单账户、单策略、同币种、单位乘数的多头现金证券账本；支持买卖、原生费用及返佣、
+拆并股、现金分红及应收到账、终止现金兑付。保证金、FX、外部入出金和未知账本事件会明确拒绝。
+“估值与成交损益”由证券市值变化加成交/终止兑付现金计算；“公司行动收益”由分红现金加应收变化计算；
+“费用现金影响”保留原生`cost_type`及符号，不将合并的maker/taker费用拆成佣金和税。
+没有独立的因果参考价时，成交价中的滑点仍在估值与成交损益内。现金机会成本、信号与风控效果
+仍需独立反事实回放；此命令不声称完成因果归因，也不改变下述M5受控组件的校验要求。
+
 `standard/v1`归因读取manifest中的权重和成本语义。声明
 `position_return_weight=previous_decision_weight_for_return_attribution`时，使用同日
 `return_weight`，缺失日期不沿用旧值；普通持仓快照仍默认使用上一期。
