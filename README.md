@@ -195,6 +195,8 @@ quant-report reconcile-v2 ^
 
 ## Plot groups
 
+实验对比页直接显示产物声明的数据性质、观察区间、币种、年化期数和Sharpe无风险利率；合成数据明确标注为软件验证。`backtest_stats`由生产端按原始绩效口径提供，完整月末样本与完整估值区间分别展示。看板不猜测缺失指标、不统一重算收益，也不据此进行跨市场排名；全部来源指标仍可展开查看。
+
 - **spread**: charts 01–15 (full futures diagnostics)
 - **equity**: charts 01, 02, 12, 13, 16 (IC), 17 (synthesis curves)
 

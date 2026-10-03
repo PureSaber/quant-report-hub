@@ -517,8 +517,31 @@ def experiment_panels(rows: list[dict], out: Path) -> tuple[str, str]:
                     "最大回撤": number(stats.get("max_drawdown"), percent=True),
                 }
             )
+        context = []
+        evidence_kind = metrics.get("evidence_kind")
+        if evidence_kind is not None:
+            evidence_label = {
+                "synthetic": "合成数据（仅验证软件）",
+                "retrospective": "回顾性数据",
+                "historical_pit": "历史PIT数据（按来源声明）",
+            }.get(str(evidence_kind), str(evidence_kind))
+            context.append(f"数据性质：{evidence_label}")
+        basis = metrics.get("measurement_basis")
+        if isinstance(basis, dict):
+            for key, title in (
+                ("period_start", "区间起点"),
+                ("period_end", "区间终点"),
+                ("currency", "币种"),
+                ("annualization_periods", "年化期数"),
+                ("monthly_annualization_periods", "月末样本年化期数"),
+                ("sharpe_risk_free_rate", "Sharpe无风险利率"),
+                ("return_basis", "收益口径"),
+            ):
+                if key in basis and basis[key] is not None:
+                    context.append(f"{title}：{basis[key]}")
+        context_html = f'<p class="notice">{esc(" · ".join(context))}</p>' if context else ""
         comparisons.append(
-            f'<article class="card" data-comparison="{index}" hidden><h3>{esc(row["project"])} / {esc(row["run_id"])}</h3><p class="meta">{label} · 指标读取原始产物，缺失值保持为空</p>{rows_table(cells)}{links}{detail("全部来源指标与口径", metrics)}</article>'
+            f'<article class="card" data-comparison="{index}" hidden><h3>{esc(row["project"])} / {esc(row["run_id"])}</h3><p class="meta">{label} · 指标读取原始产物，缺失值保持为空</p>{context_html}{rows_table(cells)}{links}{detail("全部来源指标与口径", metrics)}</article>'
         )
     table = (
         '<div class="scroll"><table><thead><tr><th>选择</th><th>项目／运行</th><th>运行类型</th><th>来源状态</th><th>索引时间与证据</th></tr></thead><tbody>'
