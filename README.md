@@ -29,17 +29,18 @@ python -m pip check
 
 `requirements.lock`是运行时、开发和editable构建环境的唯一锁文件。所有PyPI依赖均精确
 固定；内部`quant-lab`在项目元数据和锁中均指向不可变提交
-`938927e5bcad641d46e3bd733e6323719d44aa50`，包含零成交空表校验、失败决策索引与不可变试验登记。
+`6cf6126887ab084dd15507a287f40db571e65b95`，包含原生账本核验、不可变试验登记和现金/趋势独立干预。
 这是研究决策工作流已采用的提交，旧发布tag保持不变，禁止使用浮动分支。CI在Python3.10、
 3.11和3.12上均先按锁安装、执行前后`pip check`，再以`--no-deps --no-build-isolation`
 安装editable项目。
 
-重建锁文件时，使用干净Python 3.10环境运行，以包含最低支持版本所需的条件依赖
-（exceptiongroup、tomli及其依赖）：
+重建锁文件时，使用独立构建工具环境的uv按Python3.10生成通用锁，保留跨平台条件依赖
+（exceptiongroup、tomli及其依赖）。本次使用uv0.12.22：
 
 ```bash
-pip-compile --allow-unsafe --build-deps-for=editable --constraint=requirements-constraints.txt \
-  --extra=dev --output-file=requirements.lock --strip-extras pyproject.toml
+uv pip compile pyproject.toml requirements-build.in --extra dev --extra financial-data \
+  --universal --python-version 3.10 --constraint requirements-constraints.txt \
+  --index-url https://pypi.org/simple --output-file requirements.lock
 ```
 
 `requirements-constraints.txt`只记录Python3.10—3.12共同解析所需的上界，不作为第二套
@@ -234,6 +235,9 @@ quant-report dashboard --paired-evidence /research/fold-000/paired-evidence.json
 `--decision-root`、`--lab-db`组合。页面显示候选完整性、三个基准的实际执行定义、每项干预的变更、
 净收益/回撤曲线及收益差分解；可切换区间、叠加干预和参考基准。数值以百分点显示，残差保持独立，
 不解释为已识别的现金机会成本或因果交互。只接入配对研究时收起无数据的账户与调仓区块。
+
+现金缓冲与趋势筛选分别显示为独立干预，并列出实际变更字段。现金缓冲配置变化不代表
+持仓上限或实际投入同步变化；不同现金情景的计划不相同，应分别查看，不能混合复合或累计效应。
 
 读取器核对调用者指定的证据哈希、事前计划、全部尝试、执行定义、结果文件清单、完整原生
 `standard/v2`账本、逐日净收益及原分解。目前接受ASM单策略单币种的独立日线测试区间，交易日

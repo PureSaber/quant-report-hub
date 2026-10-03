@@ -20,7 +20,9 @@ def dump(path, value):
     path.write_text(canonical(value), encoding="utf-8")
 
 
-def make_paired(root, *, offset=0, failure=None, hypothesis="fixture", risk_model=False):
+def make_paired(
+    root, *, offset=0, failure=None, hypothesis="fixture", risk_model=False, cash_trend=False
+):
     root.mkdir()
     spec = recipe()
     first = pd.Timestamp("2025-01-02") + pd.Timedelta(days=offset)
@@ -31,6 +33,8 @@ def make_paired(root, *, offset=0, failure=None, hypothesis="fixture", risk_mode
     }
     if risk_model:
         spec["risk_model"] = {"model_kind": "statistical_proxy"}
+    if cash_trend:
+        spec["strategy"].update(family="etf_trend", cash_buffer=0.2)
     base = {
         "name": "base",
         "factors": spec["factors"],
@@ -43,7 +47,9 @@ def make_paired(root, *, offset=0, failure=None, hypothesis="fixture", risk_mode
     passive = {**constrained, "risk": {}, "risk_model": None}
     plan = intervention_plan(
         base,
-        {"signal": {"volatility_20d": -1}, "fees": 0},
+        {"cash_buffer": 0.4, "trend_filter": "rank"}
+        if cash_trend
+        else {"signal": {"volatility_20d": -1}, "fees": 0},
         benchmarks={
             "passive": passive,
             "same_risk_constrained": constrained,
@@ -153,6 +159,32 @@ def evidence(tmp_path):
 
 def pin(path):
     return path, file_hash(path)
+
+
+def test_cash_and_trend_candidates_are_verified_and_displayed_separately(tmp_path):
+    source = make_paired(tmp_path / "cash-trend", cash_trend=True)
+    out, snapshot = write_dashboard_bundle(
+        [], tmp_path / "report/index.html", paired_evidence=[pin(source)]
+    )
+    view = snapshot["paired_research"]["folds"][0]["view"]
+    assert set(view["curves"]) == {
+        "base",
+        "cash_buffer",
+        "trend_filter",
+        "passive",
+        "same_risk_constrained",
+        "cash",
+    }
+    html = out.read_text(encoding="utf-8")
+    assert "现金缓冲干预" in html and "趋势筛选干预" in html
+    assert 'value="cash_buffer"' in html and 'value="trend_filter"' in html
+    damaged = make_paired(tmp_path / "failed", cash_trend=True, failure="trend_filter", offset=7)
+    _, snapshot = write_dashboard_bundle(
+        [], tmp_path / "failed.html", paired_evidence=[pin(source), pin(damaged)]
+    )
+    assert snapshot["paired_research"]["combined"] is None
+    assert snapshot["paired_research"]["aggregation_error"]
+    assert not snapshot["paired_research"]["folds"][1]["available"]
 
 
 def test_complete_native_chain_charts_and_sidecars_preserve_sources(evidence, tmp_path):

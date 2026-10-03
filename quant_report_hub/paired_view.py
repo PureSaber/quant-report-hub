@@ -11,6 +11,8 @@ LABELS = {
     "frequency": "调仓频率干预",
     "fees": "成本干预",
     "delay": "信号延迟干预",
+    "cash_buffer": "现金缓冲干预",
+    "trend_filter": "趋势筛选干预",
     "passive": "被动持有基准",
     "same_risk_constrained": "同风险约束持有基准",
     "cash": "零息现金基准",
@@ -202,6 +204,8 @@ def _definitions(fold, titles):
         "frequency": ("strategy.frequency", "调仓频率"),
         "fees": ("cost_multiplier", "佣金、最低费用、税费及成交滑点乘数"),
         "delay": ("signal_delay", "信号延迟交易日"),
+        "cash_buffer": ("strategy.cash_buffer", "现金缓冲比例；其他持仓上限不变"),
+        "trend_filter": ("strategy.family", "趋势筛选；etf_trend开启，rank关闭"),
     }
     rows = []
     for name, variant in plan["variants"].items():

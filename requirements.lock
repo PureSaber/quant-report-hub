@@ -94,7 +94,7 @@ pyyaml==6.0.3
     #   quant-lab
 quant-data-kit @ git+https://github.com/PureSaber/quant-data-kit.git@ba136c2fa2eea121bfb2ad7887b536c3952586f7
     # via quant-report-hub (pyproject.toml)
-quant-lab @ git+https://github.com/PureSaber/quant-lab.git@a923a791315312a4d9caecf3b9776f08d53bb736
+quant-lab @ git+https://github.com/PureSaber/quant-lab.git@6cf6126887ab084dd15507a287f40db571e65b95
     # via quant-report-hub (pyproject.toml)
 referencing==0.37.0
     # via
