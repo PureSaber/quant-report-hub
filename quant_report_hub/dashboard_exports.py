@@ -59,7 +59,19 @@ def write_runtime_sidecars(snapshot: dict, dashboard: Path) -> list[Path]:
             },
         },
     )
-    return [alerts, status]
+    outputs = [alerts, status]
+    if snapshot.get("paired_research", {}).get("folds"):
+        outputs.append(
+            write_json(
+                dashboard.with_suffix(".paired.json"),
+                {
+                    "schema_version": "quant-report-hub.paired-comparison/v1",
+                    "generated_at": snapshot["generated_at"],
+                    **snapshot["paired_research"],
+                },
+            )
+        )
+    return outputs
 
 
 def _write_csv(path: Path, rows: Iterable[dict], fields: list[str]) -> Path:
@@ -210,6 +222,11 @@ def write_daily_package(
 ) -> list[Path]:
     """Publish a self-contained HTML/PDF/CSV daily handoff package."""
     out_dir = out_dir.resolve()
+    if any(
+        out_dir.is_relative_to(Path(fold["source"]).resolve().parent)
+        for fold in snapshot.get("paired_research", {}).get("folds", [])
+    ):
+        raise ValueError("Daily package must be outside paired evidence directories")
     out_dir.mkdir(parents=True, exist_ok=True)
     html = out_dir / "index.html"
     _atomic_bytes(html, render_dashboard(snapshot, html).encode("utf-8"))

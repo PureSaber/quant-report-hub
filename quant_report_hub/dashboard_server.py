@@ -13,7 +13,12 @@ from quant_report_hub.dashboard import EVIDENCE_FILES, write_dashboard_bundle
 from quant_report_hub.dashboard_exports import write_runtime_sidecars
 
 
-def source_fingerprint(roots: list[Path], db: Path | None) -> str:
+def source_fingerprint(
+    roots: list[Path],
+    db: Path | None,
+    *,
+    paired_evidence: list[tuple[Path, str]] | None = None,
+) -> str:
     """Hash source file metadata cheaply enough for a polling watch loop."""
     records: list[tuple[str, int, int]] = []
     patterns = (
@@ -32,6 +37,12 @@ def source_fingerprint(roots: list[Path], db: Path | None) -> str:
     if db and db.is_file():
         stat = db.stat()
         records.append((str(db.resolve()), stat.st_size, stat.st_mtime_ns))
+    for source, _sha in paired_evidence or []:
+        root = Path(source).resolve().parent
+        for path in root.rglob("*"):
+            if path.is_file() and path.resolve().is_relative_to(root):
+                stat = path.stat()
+                records.append((str(path.resolve()), stat.st_size, stat.st_mtime_ns))
     payload = json.dumps(sorted(set(records)), ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -116,6 +127,7 @@ def serve_dashboard(
     port: int = 8767,
     poll_seconds: float = 2.0,
     serve_root: Path | None = None,
+    paired_evidence: list[tuple[Path, str]] | None = None,
 ) -> str:
     """Generate, serve, and regenerate the dashboard when inputs change."""
     if host not in {"127.0.0.1", "localhost"}:
@@ -127,9 +139,10 @@ def serve_dashboard(
     if not out.is_relative_to(serve_root):
         raise ValueError("Dashboard output must be inside the HTTP serve root")
 
-    destination, snapshot = write_dashboard_bundle(roots, out, db=db)
+    paired_options = {"paired_evidence": paired_evidence} if paired_evidence else {}
+    destination, snapshot = write_dashboard_bundle(roots, out, db=db, **paired_options)
     sidecars = write_runtime_sidecars(snapshot, destination)
-    fingerprint = source_fingerprint(roots, db)
+    fingerprint = source_fingerprint(roots, db, **paired_options)
     handler = functools.partial(DashboardHandler, directory=str(serve_root))
     relative = destination.relative_to(serve_root).as_posix()
     with DashboardHTTPServer((host, port), handler) as server:
@@ -140,10 +153,10 @@ def serve_dashboard(
         try:
             while True:
                 server.handle_request()
-                current = source_fingerprint(roots, db)
+                current = source_fingerprint(roots, db, **paired_options)
                 if current == fingerprint:
                     continue
-                destination, snapshot = write_dashboard_bundle(roots, out, db=db)
+                destination, snapshot = write_dashboard_bundle(roots, out, db=db, **paired_options)
                 sidecars = write_runtime_sidecars(snapshot, destination)
                 server.published_files = published_files(snapshot, destination, sidecars)
                 fingerprint = current
