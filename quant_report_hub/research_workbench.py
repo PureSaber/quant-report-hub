@@ -81,6 +81,15 @@ def load_study(path: Path, *, registry_path: Path | None = None) -> dict:
 def diagnose(summary: dict) -> list[dict]:
     rows = {r["candidate"]["name"]: r for r in summary["results"] if r["status"] == "completed"}
     findings = []
+    incomplete = [r for r in summary["results"] if r["status"] != "completed"]
+    if incomplete:
+        findings.append(
+            {
+                "code": "INCOMPLETE_STUDY",
+                "message": "部分预登记候选未完成，候选族统计结论不可用；成功候选仅作单项描述。",
+                "evidence": [r["candidate"]["name"] for r in incomplete],
+            }
+        )
     for name, result in rows.items():
         objective = result.get("objective_evaluation")
         if objective:
@@ -94,7 +103,7 @@ def diagnose(summary: dict) -> list[dict]:
             )
     base = rows.get("base")
     if base is None:
-        return [
+        return findings + [
             {
                 "code": "BASELINE_UNAVAILABLE",
                 "message": "主实验未完成，无法判断策略表现。",
@@ -102,7 +111,7 @@ def diagnose(summary: dict) -> list[dict]:
             }
         ]
     if base["scope"].startswith("fixture"):
-        return [
+        return findings + [
             {
                 "code": "FIXTURE_ONLY",
                 "message": "这是固定样例的软件验证，收益不能作为投资表现。",
@@ -161,17 +170,40 @@ def diagnose(summary: dict) -> list[dict]:
                 "evidence": ["base/returns.csv"],
             }
         )
-    if summary["failed"]:
-        findings.append(
-            {
-                "code": "INCOMPLETE_STUDY",
-                "message": "部分候选失败，不能只凭成功候选评价整个研究。",
-                "evidence": [
-                    r["candidate"]["name"] for r in summary["results"] if r["status"] != "completed"
-                ],
-            }
-        )
     return findings
+
+
+def study_completion(summary: dict) -> dict:
+    """Separate current candidate outputs from all unsuccessful historical attempts."""
+    latest = {}
+    names = {}
+    for event in summary["attempts"]:
+        attempt = event["attempt_id"]
+        latest[attempt] = event
+        if event["status"] == "running":
+            names[attempt] = event["payload"]["parameters"]["name"]
+    unsuccessful = [
+        {
+            "candidate": names[attempt],
+            "attempt_id": attempt,
+            "status": event["status"],
+            "recorded_at": event["recorded_at"],
+            "reason": event["payload"].get("error", event["payload"].get("reason", "")),
+        }
+        for attempt, event in latest.items()
+        if event["status"] != "completed"
+    ]
+    incomplete = [r["candidate"]["name"] for r in summary["results"] if r["status"] != "completed"]
+    return {
+        "current_candidates_complete": bool(summary["results"]) and not incomplete,
+        "incomplete_candidates": incomplete,
+        "unsuccessful_attempts": unsuccessful,
+        "statistical_conclusion": (
+            "unavailable_incomplete_candidates"
+            if incomplete or not summary["results"]
+            else "requires_separate_family_evidence"
+        ),
+    }
 
 
 def _metric(value, percent=False):
@@ -183,6 +215,7 @@ def _metric(value, percent=False):
 def render_study(source: Path, output: Path, *, registry_path: Path | None = None) -> dict:
     summary = load_study(source, registry_path=registry_path)
     findings = diagnose(summary)
+    completion = study_completion(summary)
     comparison = compare_results(summary["results"])
     root = source.parent.resolve()
     target = output.resolve()
@@ -213,6 +246,7 @@ def render_study(source: Path, output: Path, *, registry_path: Path | None = Non
         "schema_version": "quant.research-diagnostics/v1",
         "study_id": summary["study_id"],
         "findings": findings,
+        "completion": completion,
         "comparison": {k: v for k, v in comparison.items() if k != "results"},
     }
     evidence_path = output.with_suffix(".diagnostics.json")
@@ -221,6 +255,28 @@ def render_study(source: Path, output: Path, *, registry_path: Path | None = Non
     cards = "".join(
         "<li><strong>" + escape(f["code"]) + "</strong> " + escape(f["message"]) + "</li>"
         for f in findings
+    )
+    completion_message = (
+        "当前候选均已完成；统计可用性仍须核验完整研究家族证据。"
+        if completion["current_candidates_complete"]
+        else "候选族统计结论不可用：仍有预登记候选未完成，成功项不能代表整个研究。"
+    )
+    failure_rows = "".join(
+        "<tr>"
+        + "".join(
+            "<td>" + escape(str(row[key])) + "</td>"
+            for key in ("candidate", "attempt_id", "status", "recorded_at", "reason")
+        )
+        + "</tr>"
+        for row in completion["unsuccessful_attempts"]
+    )
+    failure_html = (
+        "<section><h2>失败、中断与未完成尝试</h2><p>重试成功不删除旧尝试；"
+        '这些记录继续进入完整研究家族审计。</p><div class="scroll"><table><thead><tr>'
+        "<th>候选</th><th>尝试标识</th><th>状态</th><th>记录时间</th><th>原因</th>"
+        "</tr></thead><tbody>" + failure_rows + "</tbody></table></div></section>"
+        if failure_rows
+        else ""
     )
     limitations = sorted({text for r in summary["results"] for text in r.get("limitations", [])})
     base = next(
@@ -299,6 +355,7 @@ def render_study(source: Path, output: Path, *, registry_path: Path | None = Non
 <main><p class="muted">PURESABER / RESEARCH WORKBENCH</p><h1>{escape(summary["study_id"])}</h1>
 <p>研究假设（待验证）：{escape(summary["recipe"]["hypothesis"])}</p><span class="badge">{escape(summary["recipe"]["mode"])} · 全部候选留痕</span>
 <section class="stats"><div><b>{len(summary["results"])}</b>预登记候选</div><div><b>{summary["completed"]}</b>完成</div><div><b>{summary["failed"]}</b>失败</div><div><b>{len(summary["attempts"])}</b>审计事件</div></section>
+<section aria-label="候选完整性"><h2>候选完整性与统计边界</h2><p>{completion_message}</p></section>{failure_html}
 <section><h2>实验比较</h2><p class="muted">成本压力实验单独标识口径差异；不按最高收益自动晋级。收益来自模拟账本。</p><input id="filter" placeholder="筛选实验名称或状态" aria-label="筛选实验"><div class="scroll"><table id="experiments"><thead><tr><th>实验</th><th>状态</th><th>净收益</th><th>最大回撤</th><th>Sharpe</th><th>成交</th><th>费用</th><th>失败原因</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></section>
 <section><h2>稳健性与失败诊断</h2><ul>{cards}</ul><p class="muted">诊断反映配对实验结果，不是收益预测或因果证明。未触碰留出区间须单独等待并评估。</p></section>
 <section><h2>证据与适用范围</h2><ul>{"".join("<li>" + escape(s) + "</li>" for s in limitations)}</ul><details><summary>比较口径差异</summary><pre>{escape(json.dumps(comparison["mismatches"], ensure_ascii=False, indent=2))}</pre></details><details><summary>冻结研究配方</summary><pre>{escape(json.dumps(summary["recipe"], ensure_ascii=False, indent=2))}</pre></details></section>
