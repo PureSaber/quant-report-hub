@@ -275,6 +275,15 @@ def test_legacy_index_is_labelled_and_comparison_retains_portfolios(tmp_path):
         run,
         run_type="equity_backtest",
         metrics={
+            "evidence_kind": "synthetic",
+            "measurement_basis": {
+                "period_start": "2026-01-02",
+                "period_end": "2026-06-30",
+                "currency": "USD",
+                "annualization_periods": 252,
+                "sharpe_risk_free_rate": 0,
+                "return_basis": "<script>alert(1)</script>",
+            },
             "backtest_stats": [
                 {"portfolio": "Q1", "total_return": 0.1},
                 {"portfolio": "Q2", "sharpe": None},
@@ -288,6 +297,11 @@ def test_legacy_index_is_labelled_and_comparison_retains_portfolios(tmp_path):
     ).read_text(encoding="utf-8")
     assert "索引缓存 · 未校验" in page and "10.00%" in page
     assert "Q1" in page and "Q2" in page
+    comparison = page.split('data-comparison="0"', 1)[1].split("<details", 1)[0]
+    assert "合成数据（仅验证软件）" in comparison
+    assert "区间起点：2026-01-02" in comparison and "币种：USD" in comparison
+    assert "年化期数：252" in comparison and "Sharpe无风险利率：0" in comparison
+    assert "&lt;script&gt;" in comparison and "<script>alert" not in comparison
     with sqlite3.connect(db) as connection:
         connection.execute("UPDATE experiments SET metrics_json='[]'")
     assert read_experiments(db)[0][0]["error"]
