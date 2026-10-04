@@ -41,6 +41,12 @@ def test_coverage_gate_normalizes_windows_paths(tmp_path: Path):
                     "quant_report_hub\\cash_attribution.py": {
                         "summary": {"num_branches": 10, "covered_branches": 9}
                     },
+                    "quant_report_hub\\execution_references.py": {
+                        "summary": {"num_branches": 10, "covered_branches": 9}
+                    },
+                    "quant_report_hub\\cash_price_bridge.py": {
+                        "summary": {"num_branches": 10, "covered_branches": 9}
+                    },
                 },
             }
         ),

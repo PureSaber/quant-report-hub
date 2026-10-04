@@ -12,6 +12,7 @@ import pandas as pd
 
 from quant_report_hub.attribution import attribute_standard_run, reconcile_standard_run_v2
 from quant_report_hub.cash_attribution import reconcile_cash_ledger_v2
+from quant_report_hub.cash_price_bridge import verify_cash_price_bridge, write_cash_price_bridge
 from quant_report_hub.config import VizConfig, plot_groups_for
 from quant_report_hub.context import CompareContext, PlotContext
 from quant_report_hub.dashboard import write_dashboard_bundle
@@ -134,6 +135,25 @@ def _cmd_cash_attribution(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_cash_price_bridge(args: argparse.Namespace) -> int:
+    try:
+        common = {"references": args.references, "references_sha256": args.references_sha256}
+        if args.command == "verify-cash-price-bridge":
+            receipt = verify_cash_price_bridge(
+                args.run_dir,
+                **common,
+                report_dir=args.report_dir,
+                manifest_sha256=args.manifest_sha256,
+            )
+        else:
+            receipt = write_cash_price_bridge(args.run_dir, **common, out_dir=args.out_dir)
+    except (OSError, ValueError) as exc:
+        print(f"{args.command}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(receipt, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _cmd_dashboard(args: argparse.Namespace) -> int:
     try:
         destination, snapshot = write_dashboard_bundle(
@@ -251,6 +271,22 @@ def build_parser() -> argparse.ArgumentParser:
     cash.add_argument("--run-dir", required=True)
     cash.add_argument("--out-dir", required=True, help="尚不存在且位于源运行目录之外的报告目录")
     cash.set_defaults(func=_cmd_cash_attribution)
+
+    for command in ("cash-price-bridge", "verify-cash-price-bridge"):
+        bridge = sub.add_parser(
+            command, help="独立订单接受时报价与原生现金账本的有符号成交价差对账"
+        )
+        bridge.add_argument("--run-dir", required=True)
+        bridge.add_argument(
+            "--references", required=True, help="独立报价包清单；同目录含quotes.csv"
+        )
+        bridge.add_argument("--references-sha256", required=True, help="事先绑定的报价清单SHA-256")
+        if command.startswith("verify-"):
+            bridge.add_argument("--report-dir", required=True)
+            bridge.add_argument("--manifest-sha256", required=True, help="已保存的报告清单SHA-256")
+        else:
+            bridge.add_argument("--out-dir", required=True, help="来源之外尚不存在的报告目录")
+        bridge.set_defaults(func=_cmd_cash_price_bridge)
 
     dashboard = sub.add_parser("dashboard", help="生成决策、实验与证据统一研究看板")
     dashboard.add_argument(
