@@ -180,6 +180,12 @@ quant-report cash-attribution --run-dir /path/to/run --out-dir /path/to/new-repo
 没有独立的因果参考价时，成交价中的滑点仍在估值与成交损益内。现金机会成本、信号与风控效果
 仍需独立反事实回放；此命令不声称完成因果归因，也不改变下述M5受控组件的校验要求。
 
+已有独立报价时，使用`cash-price-bridge`按订单首次接受时已可得的最新买卖报价中点，
+拆分有符号成交价差与参考价估值剩余项。买卖双方均保留有利成交改善和不利成本，
+逐笔现金舍入单列，与原期间/证券损益精确守恒。报价缺失、未来可得、过期或跨公司行动时拒绝输出。
+该入口复用原生现金归因，不重建第二套账户、不增加费用、不修改M5已入账slippage费用契约。
+报价包契约、手算示例及独立重算命令见[成交参考价归因](docs/CASH_PRICE_BRIDGE.md)。
+
 `standard/v1`归因读取manifest中的权重和成本语义。声明
 `position_return_weight=previous_decision_weight_for_return_attribution`时，使用同日
 `return_weight`，缺失日期不沿用旧值；普通持仓快照仍默认使用上一期。
