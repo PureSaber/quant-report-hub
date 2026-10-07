@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 financial-data = ["quant-data-kit @ git+https://github.com/PureSaber/quant-data-kit.git@ba136c2fa2eea121bfb2ad7887b536c3952586f7"]
-dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.8"]
+dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.10"]
 
 [project.scripts]
 quant-report = "quant_report_hub.cli:main"
