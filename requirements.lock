@@ -105,7 +105,7 @@ rpds-py==0.30.0
     #   -c requirements-constraints.txt
     #   jsonschema
     #   referencing
-ruff==0.16.8
+ruff==0.16.10
     # via quant-report-hub (pyproject.toml)
 seaborn==0.13.2
     # via quant-report-hub (pyproject.toml)
