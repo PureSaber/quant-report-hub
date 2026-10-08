@@ -18,6 +18,10 @@ from quant_report_hub.context import CompareContext, PlotContext
 from quant_report_hub.dashboard import write_dashboard_bundle
 from quant_report_hub.dashboard_exports import write_daily_package, write_runtime_sidecars
 from quant_report_hub.dashboard_server import serve_dashboard
+from quant_report_hub.execution_diagnostics import (
+    verify_execution_diagnostics,
+    write_execution_diagnostics,
+)
 from quant_report_hub.plots.registry import run_compare, run_plots
 
 
@@ -171,6 +175,30 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_execution_diagnostics(args: argparse.Namespace) -> int:
+    try:
+        common = {
+            "references": args.references,
+            "references_sha256": args.references_sha256,
+            "policy": args.policy,
+            "policy_sha256": args.policy_sha256,
+        }
+        if args.command == "verify-execution-cost-diagnostics":
+            receipt = verify_execution_diagnostics(
+                args.run_dir,
+                **common,
+                report_dir=args.report_dir,
+                manifest_sha256=args.manifest_sha256,
+            )
+        else:
+            receipt = write_execution_diagnostics(args.run_dir, **common, out_dir=args.out_dir)
+    except (OSError, ValueError) as exc:
+        print(f"{args.command}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(receipt, ensure_ascii=False, indent=2))
+    return 0 if receipt["summary"]["status"] == "computed" else 2
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     if args.poll_seconds <= 0 or not 0 < args.port < 65536:
         print("serve: poll-seconds and port must be positive", file=sys.stderr)
@@ -287,6 +315,20 @@ def build_parser() -> argparse.ArgumentParser:
         else:
             bridge.add_argument("--out-dir", required=True, help="来源之外尚不存在的报告目录")
         bridge.set_defaults(func=_cmd_cash_price_bridge)
+
+    for command in ("execution-cost-diagnostics", "verify-execution-cost-diagnostics"):
+        diagnostics = sub.add_parser(command, help="按训练及留出期诊断有符号成交价差，不修改账本")
+        diagnostics.add_argument("--run-dir", required=True)
+        diagnostics.add_argument("--references", required=True)
+        diagnostics.add_argument("--references-sha256", required=True)
+        diagnostics.add_argument("--policy", required=True)
+        diagnostics.add_argument("--policy-sha256", required=True)
+        if command.startswith("verify-"):
+            diagnostics.add_argument("--report-dir", required=True)
+            diagnostics.add_argument("--manifest-sha256", required=True)
+        else:
+            diagnostics.add_argument("--out-dir", required=True)
+        diagnostics.set_defaults(func=_cmd_execution_diagnostics)
 
     dashboard = sub.add_parser("dashboard", help="生成决策、实验与证据统一研究看板")
     dashboard.add_argument(
