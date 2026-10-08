@@ -265,6 +265,8 @@ quant-report dashboard --paired-evidence /research/fold-000/paired-evidence.json
 
 ## Tests
 
+成交成本支持按订单分组、按时间分离训练与留出的[可重算诊断](docs/EXECUTION_COST_DIAGNOSTICS.md)，输出有符号价差、留出偏差、预算超限及样本不足状态。合成数据不产生真实执行校准声明。
+
 ```bash
 pytest -q
 ```
