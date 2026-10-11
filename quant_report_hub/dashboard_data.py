@@ -319,6 +319,8 @@ def read_experiments(db: Path | None, limit: int = MAX_RUNS) -> tuple[list[dict]
             row = dict(record)
             row["error"] = ""
             row["verified"] = False
+            row["measurement"] = None
+            row["measurement_error"] = "历史指标缺少完整经济口径，仅供只读查看"
             try:
                 run = Path(row["run_path"])
                 # Index metrics are only a cache. A present standard artifact must
@@ -334,6 +336,20 @@ def read_experiments(db: Path | None, limit: int = MAX_RUNS) -> tuple[list[dict]
                     )
                     row["metrics"] = read_json(base / "metrics.json")
                     row["verified"] = True
+                    try:
+                        from quant_lab.measurement import read_measured_run
+
+                        measured = read_measured_run(run)
+                        if (
+                            measured["manifest"].run_id != row["run_id"]
+                            or measured["manifest"].project != row["project"]
+                        ):
+                            raise ValueError("Measured source identity differs from index")
+                        row["measurement"] = measured["measurement"]
+                        row["metrics"] = measured["metrics"]
+                        row["measurement_error"] = ""
+                    except (ValueError, TypeError, OSError) as exc:
+                        row["measurement_error"] = str(exc)
                 elif not run.is_dir() or row["run_type"].startswith("standard"):
                     raise ValueError("Indexed source artifacts are missing")
                 else:

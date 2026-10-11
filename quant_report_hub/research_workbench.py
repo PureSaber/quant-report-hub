@@ -127,6 +127,15 @@ def diagnose(summary: dict) -> list[dict]:
             }
         )
     baseline = rows.get("buy_hold")
+    measured = compare_results(summary["results"])["measurement_comparison"]
+    if not measured["comparable"]:
+        findings.append(
+            {
+                "code": "MEASUREMENT_UNAVAILABLE",
+                "message": "经济口径或来源不兼容；保留单项历史指标，不计算跨运行收益差。",
+                "evidence": measured["reasons"],
+            }
+        )
     if baseline and compare_results([base, baseline])["comparable"]:
         difference = base["metrics"]["total_return"] - baseline["metrics"]["total_return"]
         findings.append(
@@ -139,6 +148,8 @@ def diagnose(summary: dict) -> list[dict]:
         )
     for name, result in rows.items():
         if name == "base" or name == "buy_hold":
+            continue
+        if not compare_results([base, result])["comparable"]:
             continue
         difference = result["metrics"]["total_return"] - base["metrics"]["total_return"]
         findings.append(
@@ -247,7 +258,9 @@ def render_study(source: Path, output: Path, *, registry_path: Path | None = Non
         "study_id": summary["study_id"],
         "findings": findings,
         "completion": completion,
-        "comparison": {k: v for k, v in comparison.items() if k != "results"},
+        "comparison": {
+            k: v for k, v in comparison.items() if k not in {"results", "requested_results"}
+        },
     }
     evidence_path = output.with_suffix(".diagnostics.json")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -358,7 +371,7 @@ def render_study(source: Path, output: Path, *, registry_path: Path | None = Non
 <section aria-label="候选完整性"><h2>候选完整性与统计边界</h2><p>{completion_message}</p></section>{failure_html}
 <section><h2>实验比较</h2><p class="muted">成本压力实验单独标识口径差异；不按最高收益自动晋级。收益来自模拟账本。</p><input id="filter" placeholder="筛选实验名称或状态" aria-label="筛选实验"><div class="scroll"><table id="experiments"><thead><tr><th>实验</th><th>状态</th><th>净收益</th><th>最大回撤</th><th>Sharpe</th><th>成交</th><th>费用</th><th>失败原因</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></section>
 <section><h2>稳健性与失败诊断</h2><ul>{cards}</ul><p class="muted">诊断反映配对实验结果，不是收益预测或因果证明。未触碰留出区间须单独等待并评估。</p></section>
-<section><h2>证据与适用范围</h2><ul>{"".join("<li>" + escape(s) + "</li>" for s in limitations)}</ul><details><summary>比较口径差异</summary><pre>{escape(json.dumps(comparison["mismatches"], ensure_ascii=False, indent=2))}</pre></details><details><summary>冻结研究配方</summary><pre>{escape(json.dumps(summary["recipe"], ensure_ascii=False, indent=2))}</pre></details></section>
+<section><h2>证据与适用范围</h2><ul>{"".join("<li>" + escape(s) + "</li>" for s in limitations)}</ul><details><summary>比较口径差异</summary><pre>{escape(json.dumps({"legacy": comparison["mismatches"], "measurement": comparison["measurement_comparison"]}, ensure_ascii=False, indent=2))}</pre></details><details><summary>冻结研究配方</summary><pre>{escape(json.dumps(summary["recipe"], ensure_ascii=False, indent=2))}</pre></details></section>
 {validation_html}{risk_html}{factor_html}</main><script>document.getElementById('filter').addEventListener('input',function(){{const q=this.value.toLowerCase();document.querySelectorAll('#experiments tbody tr').forEach(r=>r.hidden=!r.textContent.toLowerCase().includes(q));}});</script></html>"""
     temporary = output.with_suffix(output.suffix + ".tmp")
     temporary.write_text(html, encoding="utf-8")

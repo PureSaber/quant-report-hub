@@ -69,7 +69,8 @@ def test_verified_report_escapes_source_and_explains_cost_difference(tmp_path):
     assert "风险执行证据" in html and "target_rejections" in html
     assert not report["comparison"]["comparable"]
     assert any(r["code"] == "INCOMPLETE_STUDY" for r in report["findings"])
-    assert any(r["code"] == "NET_BASELINE_DIFFERENCE" for r in report["findings"])
+    assert not any(r["code"] == "NET_BASELINE_DIFFERENCE" for r in report["findings"])
+    assert any(r["code"] == "MEASUREMENT_UNAVAILABLE" for r in report["findings"])
     with pytest.raises(ValueError, match="overwrite"):
         render_study(tmp_path / "study.json", tmp_path / "experiments.db")
     summary = json.loads((tmp_path / "study.json").read_text())

@@ -66,12 +66,17 @@ SCRIPT = """
   });
   const button = q('#compare-button');
   function selection() {
-    const count = all('.experiment-check:checked').length;
-    button.disabled = count < 2;
-    button.textContent = `对比所选实验（${count}）`;
+    const selected = all('.experiment-check:checked');
+    const count = selected.length;
+    const bases = new Set(selected.map(el => el.dataset.basis));
+    const compatible = count >= 2 && bases.size === 1 && !bases.has('') && !bases.has(undefined);
+    button.disabled = !compatible;
+    button.textContent = count >= 2 && !compatible ? '不可对比：经济口径或输入身份不同' : `对比所选实验（${count}）`;
   }
   all('.experiment-check').forEach(el => el.addEventListener('change', selection));
   button.addEventListener('click', () => {
+    selection();
+    if (button.disabled) return;
     const selected = new Set(all('.experiment-check:checked').map(el => el.value));
     all('[data-comparison]').forEach(el => el.hidden = !selected.has(el.dataset.comparison));
     q('#comparison').hidden = false;

@@ -7,10 +7,12 @@ from collections.abc import Callable
 from quant_report_hub.adapters.base import OutputAdapter
 from quant_report_hub.adapters.equity import get_equity_adapter
 from quant_report_hub.adapters.spread import get_spread_adapter
+from quant_report_hub.adapters.standard import StandardAdapter
 
 ADAPTERS: dict[str, Callable[..., OutputAdapter]] = {
     "spread": get_spread_adapter,
     "equity": get_equity_adapter,
+    "standard": StandardAdapter,
 }
 
 

@@ -21,6 +21,7 @@ class RunBundle:
     rolls: pd.DataFrame
     summary: pd.DataFrame
     extras: dict[str, pd.DataFrame]
+    measurement: dict | None = None
 
 
 class OutputAdapter(Protocol):
