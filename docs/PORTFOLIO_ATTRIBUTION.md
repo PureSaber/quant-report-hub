@@ -49,8 +49,10 @@ was separated from calculation without changing the existing financial checks. I
 requires a single source account and all adjacent portfolio snapshot intervals. Source
 price/carry/roll/FX components stay producer-supplied; commission, tax, funding, maker,
 taker, slippage and other costs keep their existing evidence checks and signed values.
-Optional `slippage_references` requires `slippage_references_sha256` and must pass the
-original causal reference checks. Source `residual` stays visible as `source_residual`;
+Optional `slippage_references` requires `slippage_references_sha256`; the hash and CSV
+parser consume the same single-read byte snapshot, which must pass the original causal
+reference checks. A later replacement of the source file cannot change this evaluation.
+Source `residual` stays visible as `source_residual`;
 any further NAV difference remains `residual`. Neither residual is called alpha.
 
 ## Common-period, cash and currency contract

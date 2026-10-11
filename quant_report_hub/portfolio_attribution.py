@@ -99,9 +99,10 @@ def _v2_periods(account, root):
     references = None
     if "slippage_references" in account:
         path = root / account["slippage_references"]
-        if hashlib.sha256(path.read_bytes()).hexdigest() != account["slippage_references_sha256"]:
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != account["slippage_references_sha256"]:
             raise ValueError("slippage reference hash mismatch")
-        references = pd.read_csv(path, dtype={"fill_id": str, "instrument_id": str})
+        references = pd.read_csv(io.BytesIO(raw), dtype={"fill_id": str, "instrument_id": str})
     source, manifest, frames, detail, reconciliation, _, fingerprint = _reconstruct_standard_run_v2(
         root / account["run_dir"], slippage_references=references
     )

@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 from decimal import Decimal as D
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -271,6 +272,70 @@ def test_v2_futures_crypto_components_reuse_original_checks(tmp_path):
     assert D(crypto_result["portfolio"][0]["pnl_base"]) == 20
     assert D(crypto_result["accounts"][0]["components_base"]["funding"]) == -2
     assert D(crypto_result["accounts"][0]["components_base"]["fx"]) == 5
+
+
+@pytest.mark.parametrize("pinned_valid", [False, True])
+def test_v2_slippage_uses_the_hashed_snapshot_after_source_replacement(
+    tmp_path, monkeypatch, pinned_valid
+):
+    run = tmp_path / "crypto"
+    _write_run(
+        run,
+        source=[_source_row("price", 20), _source_row("fx", 5)],
+        costs=[
+            ("maker_fee", 1, "fill-1"),
+            ("taker_fee", 1, "fill-1"),
+            ("funding", 2, None),
+            ("slippage", 1, "fill-1"),
+        ],
+        nav_delta=20,
+    )
+    valid = _references().to_csv(index=False).encode("utf-8")
+    invalid_frame = _references()
+    invalid_frame.loc[0, "reference_price_units"] = 90
+    invalid = invalid_frame.to_csv(index=False).encode("utf-8")
+    pinned, replacement = (valid, invalid) if pinned_valid else (invalid, valid)
+    reference = tmp_path / "refs.csv"
+    reference.write_bytes(pinned)
+    a = account("crypto", asset_class="crypto", evidence="validated_v2_components")
+    a.update(
+        run_dir="crypto",
+        run_manifest_sha256=hashlib.sha256(
+            (run / "standard/v2/run_manifest.json").read_bytes()
+        ).hexdigest(),
+        slippage_references="refs.csv",
+        slippage_references_sha256=hashlib.sha256(pinned).hexdigest(),
+    )
+    row = period()
+    row.update(
+        start="2025-01-02T00:00:00Z",
+        end="2025-01-03T00:00:00Z",
+        known_at="2025-01-05T00:00:00Z",
+        fx_start_known_at="2025-01-02T00:00:00Z",
+        fx_end_known_at="2025-01-03T00:00:00Z",
+    )
+    a["periods"] = [row]
+    spec = dict(portfolio(), accounts=[a], risk_models=[])
+    read_bytes = Path.read_bytes
+    reads = []
+
+    def replace_after_read(path):
+        raw = read_bytes(path)
+        if path.resolve() == reference.resolve():
+            reads.append(raw)
+            reference.write_bytes(replacement)
+        return raw
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+    if pinned_valid:
+        result = evaluate_portfolio_attribution(spec, source_root=tmp_path)
+        assert D(result["portfolio"][0]["pnl_base"]) == 20
+        assert D(result["accounts"][0]["components_base"]["slippage"]) == -1
+    else:
+        with pytest.raises(ValueError, match="slippage.*reference/fill"):
+            evaluate_portfolio_attribution(spec, source_root=tmp_path)
+    assert reads == [pinned]
+    assert read_bytes(reference) == replacement
 
 
 @pytest.mark.parametrize(
