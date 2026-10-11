@@ -674,13 +674,12 @@ def _report_frame(records: list[dict[str, Any]]) -> pd.DataFrame:
     )
 
 
-def reconcile_standard_run_v2(
+def _reconstruct_standard_run_v2(
     run_dir: str | Path,
     *,
-    out_dir: str | Path | None = None,
     slippage_references: pd.DataFrame | None = None,
-) -> V2AttributionManifest:
-    """Publish an exact, separately-stored M5 attribution report from an immutable v2 run.
+):
+    """Reconstruct existing M5 evidence without writing a report or changing a run.
 
     The reader delegates all file, hash, schema and lineage checks to QLab before it opens a
     Parquet file. v2 corruption therefore raises immediately and never reaches the v1 reader.
@@ -724,6 +723,19 @@ def reconcile_standard_run_v2(
         frames["returns"],
         manifest.base_currency,
         instrument_expected,
+    )
+    return run_path, manifest, frames, detail, reconciliation, level_counts, source_hash
+
+
+def reconcile_standard_run_v2(
+    run_dir: str | Path,
+    *,
+    out_dir: str | Path | None = None,
+    slippage_references: pd.DataFrame | None = None,
+) -> V2AttributionManifest:
+    """Publish a separately-stored M5 report using the common strict reconstruction."""
+    run_path, manifest, _, detail, reconciliation, level_counts, source_hash = (
+        _reconstruct_standard_run_v2(run_dir, slippage_references=slippage_references)
     )
     destination = Path(out_dir) if out_dir is not None else run_path / "reports" / "attribution-v2"
     resolved_destination = destination.resolve(strict=False)

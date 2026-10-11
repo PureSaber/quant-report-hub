@@ -1,0 +1,127 @@
+{
+  "schema": "quant-report-hub.portfolio-attribution/v1",
+  "base_currency": "USD",
+  "evaluation_as_of": "2025-01-10T00:00:00Z",
+  "accounts": [
+    {
+      "id": "eur-equity",
+      "economic_scope": "eur-equity",
+      "asset_class": "equity",
+      "currency": "EUR",
+      "evidence_level": "reported_components",
+      "source_ref": "synthetic:test",
+      "data_nature": "synthetic",
+      "periods": [
+        {
+          "start": "2025-01-01T00:00:00Z",
+          "end": "2025-01-02T00:00:00Z",
+          "known_at": "2025-01-02T00:00:00Z",
+          "opening_nav": "100",
+          "closing_nav": "130",
+          "fx_start": "1.1",
+          "fx_end": "1.3",
+          "fx_start_known_at": "2025-01-01T00:00:00Z",
+          "fx_end_known_at": "2025-01-02T00:00:00Z",
+          "flows": [
+            {
+              "flow_id": "flow-20",
+              "amount": "20",
+              "fx_rate": "1.2",
+              "kind": "external",
+              "transfer_id": "t1",
+              "time": "2025-01-01T12:00:00Z",
+              "known_at": "2025-01-01T12:00:00Z",
+              "fx_known_at": "2025-01-01T12:00:00Z"
+            }
+          ],
+          "components": {
+            "price": "8",
+            "dividend": "1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "usd-cash",
+      "economic_scope": "usd-cash",
+      "asset_class": "cash",
+      "currency": "USD",
+      "evidence_level": "reported_components",
+      "source_ref": "synthetic:test",
+      "data_nature": "synthetic",
+      "periods": [
+        {
+          "start": "2025-01-01T00:00:00Z",
+          "end": "2025-01-02T00:00:00Z",
+          "known_at": "2025-01-02T00:00:00Z",
+          "opening_nav": "50",
+          "closing_nav": "51",
+          "fx_start": "1",
+          "fx_end": "1",
+          "fx_start_known_at": "2025-01-01T00:00:00Z",
+          "fx_end_known_at": "2025-01-02T00:00:00Z",
+          "flows": [],
+          "components": {
+            "cash_interest": "1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fund-nav",
+      "economic_scope": "fund-nav",
+      "asset_class": "fund",
+      "currency": "USD",
+      "evidence_level": "nav_bridge",
+      "source_ref": "synthetic:test",
+      "data_nature": "synthetic",
+      "periods": [
+        {
+          "start": "2025-01-01T00:00:00Z",
+          "end": "2025-01-02T00:00:00Z",
+          "known_at": "2025-01-02T00:00:00Z",
+          "opening_nav": "20",
+          "closing_nav": "19",
+          "fx_start": "1",
+          "fx_end": "1",
+          "fx_start_known_at": "2025-01-01T00:00:00Z",
+          "fx_end_known_at": "2025-01-02T00:00:00Z",
+          "flows": [],
+          "components": {}
+        }
+      ]
+    }
+  ],
+  "risk_models": [
+    {
+      "period_start": "2025-01-01T00:00:00Z",
+      "estimation_end": "2024-12-31T00:00:00Z",
+      "known_at": "2025-01-01T00:00:00Z",
+      "source_ref": "synthetic:covariance",
+      "period_unit": "one day",
+      "return_basis": "base_net_simple_total_return",
+      "accounts": [
+        "eur-equity",
+        "usd-cash",
+        "fund-nav"
+      ],
+      "covariance": [
+        [
+          0.01,
+          0,
+          0.001
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0.001,
+          0,
+          0.0025
+        ]
+      ]
+    }
+  ]
+}
