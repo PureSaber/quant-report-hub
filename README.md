@@ -274,3 +274,7 @@ quant-report dashboard --paired-evidence /research/fold-000/paired-evidence.json
 ```bash
 pytest -q
 ```
+
+For ordinary multi-run comparison, use the native `standard` adapter and the explicit
+[measurement contract](docs/measurement-comparison.md). Historical single-run reports
+remain readable; unknown or incompatible economic inputs cannot certify a comparison.

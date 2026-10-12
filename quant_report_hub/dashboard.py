@@ -490,6 +490,8 @@ def decision_inbox(sources: list[dict]) -> str:
 
 
 def experiment_panels(rows: list[dict], out: Path) -> tuple[str, str]:
+    from quant_measurement import compare_measurements
+
     body, comparisons = [], []
     for index, row in enumerate(rows):
         label = (
@@ -500,12 +502,22 @@ def experiment_panels(rows: list[dict], out: Path) -> tuple[str, str]:
             else "索引缓存 · 未校验"
         )
         status = "invalid" if row["error"] else "verified" if row["verified"] else "cached"
-        checkbox = f'<input class="check experiment-check" type="checkbox" value="{index}" aria-label="选择 {esc(row["project"])} / {esc(row["run_id"])}" {"disabled" if row["error"] else ""}>'
+        measurement = row.get("measurement")
+        eligibility = compare_measurements([measurement, measurement])
+        key = eligibility["basis_id"] or ""
+        blocked = bool(row["error"]) or not row["verified"] or not key
+        notice = row.get("measurement_error") or (
+            "口径完整；仅声明兼容，不认证市场有效性" if key else "经济口径未知，仅供只读查看"
+        )
+        checkbox = f'<input class="check experiment-check" type="checkbox" value="{index}" data-basis="{esc(key)}" aria-label="选择 {esc(row["project"])} / {esc(row["run_id"])}" {"disabled" if blocked else ""}>'
         links = evidence_links(Path(row["run_path"]), out)
         body.append(
             f'<tr data-search="{esc(row["project"] + " " + row["run_id"])}" data-status="{status}"><td>{checkbox}</td><td><b>{esc(row["project"])}</b><br><span class="run-id">{esc(row["run_id"])}</span></td><td>{esc(row["run_type"])}</td><td>{label}<br><small>{esc(row["error"])}</small></td><td><small>{esc(row["scanned_at"])}</small>{links}</td></tr>'
         )
         metrics = row["metrics"]
+        body[-1] = body[-1].replace(
+            "</td></tr>", f"<p>{esc(notice)}</p>{detail('只读来源指标', metrics)}</td></tr>"
+        )
         stat_rows = metrics.get("backtest_stats")
         if not isinstance(stat_rows, list) or not all(isinstance(v, dict) for v in stat_rows):
             stat_rows = [metrics]
