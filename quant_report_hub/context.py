@@ -30,6 +30,7 @@ class PlotContext:
     extras: dict[str, pd.DataFrame] = field(default_factory=dict)
     roundtrips: pd.DataFrame = field(default_factory=pd.DataFrame)
     spread_pnl: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    measurement: dict | None = None
 
     @classmethod
     def from_bundle(cls, cfg: VizConfig, bundle: RunBundle) -> PlotContext:
@@ -58,6 +59,7 @@ class PlotContext:
             extras=bundle.extras,
             roundtrips=rt,
             spread_pnl=pnl,
+            measurement=bundle.measurement,
         )
 
     @classmethod

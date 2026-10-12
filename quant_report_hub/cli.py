@@ -82,13 +82,17 @@ def _cmd_compare(args: argparse.Namespace) -> int:
         out_dir=args.out_dir or str(Path("reports") / "compare"),
         adapter=args.adapter,
     )
-    runs = [
-        PlotContext.from_run(cfg, rid, adapter=args.adapter, strategy=args.strategy)
-        for rid in args.run_ids
-    ]
-    cmp = CompareContext(cfg=cfg, runs=runs, out_dir=Path(cfg.out_dir))
-    cmp.out_dir.mkdir(parents=True, exist_ok=True)
-    outputs = run_compare(cmp)
+    try:
+        runs = [
+            PlotContext.from_run(cfg, rid, adapter=args.adapter, strategy=args.strategy)
+            for rid in args.run_ids
+        ]
+        cmp = CompareContext(cfg=cfg, runs=runs, out_dir=Path(cfg.out_dir))
+        cmp.out_dir.mkdir(parents=True, exist_ok=True)
+        outputs = run_compare(cmp)
+    except (ValueError, TypeError, OSError) as exc:
+        print(f"comparison unavailable: {exc}", file=sys.stderr)
+        return 2
     print(f"generated {len(outputs)} compare plots -> {cmp.out_dir}")
     for p in outputs:
         print(f"  {p.name}")
@@ -264,7 +268,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.set_defaults(func=_cmd_run)
 
     cmp = sub.add_parser("compare", help="Compare multiple runs (plot 14)")
-    cmp.add_argument("--adapter", default="spread", choices=["spread", "equity"])
+    cmp.add_argument("--adapter", default="standard", choices=["standard", "spread", "equity"])
     cmp.add_argument("--output-root", required=True)
     cmp.add_argument("--run-ids", nargs="+", required=True)
     cmp.add_argument("--out-dir", default="")

@@ -134,7 +134,8 @@ def test_all_legacy_plots_and_compare_render(tmp_path):
         runs=[ctx, PlotContext.from_bundle(cfg, _bundle(tmp_path, "other"))],
         out_dir=ctx.out_dir,
     )
-    assert len(run_compare(comparison)) == 3
+    with pytest.raises(ValueError, match="Economic comparison unavailable"):
+        run_compare(comparison)
 
 
 def test_loader_adapters_context_and_market_layout(tmp_path):
