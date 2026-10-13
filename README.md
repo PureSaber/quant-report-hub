@@ -33,7 +33,7 @@ python -m pip check
 
 `requirements.lock`是运行时、开发和editable构建环境的唯一锁文件。所有PyPI依赖均精确
 固定；内部`quant-lab`在项目元数据和锁中均指向不可变提交
-`6cf6126887ab084dd15507a287f40db571e65b95`，包含原生账本核验、不可变试验登记和现金/趋势独立干预。
+`126e0ce1ae3cad7121baf7c311365ca4a7ad42c8`，包含原生账本核验、不可变试验登记和现金/趋势独立干预。
 这是研究决策工作流已采用的提交，旧发布tag保持不变，禁止使用浮动分支。CI在Python3.10、
 3.11和3.12上均先按锁安装、执行前后`pip check`，再以`--no-deps --no-build-isolation`
 安装editable项目。
