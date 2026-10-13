@@ -18,7 +18,7 @@ dependencies = [
     "openpyxl==3.1.5",
     "pyarrow==25.0.1",
     # Reviewed native-ledger and isolated cash/trend interventions; pinned in the lock.
-    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@fa90bd6e2709fdd831bda8ac5fa93137dbba5723",
+    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@126e0ce1ae3cad7121baf7c311365ca4a7ad42c8",
 ]
 
 [project.optional-dependencies]
