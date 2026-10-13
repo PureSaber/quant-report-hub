@@ -217,6 +217,11 @@ delta NAV = price + carry + funding + roll + fx
 orders追溯的标的，并使用来源归因生成独立期望值；若有slippage，则必须提供同一
 `fill_id`的因果reference CSV，包含`reference_time`、`available_at`、价格、合约乘数和FX快照。
 
+QExec原生统一费用`maker`、`taker`在报告读入时分别规范为`maker_fee`、`taker_fee`，
+`costs`与来源`attribution`使用同一映射；源文件不改写，也不拆成佣金或税。
+只有原生现金账本但未提供价格等来源归因的A股产物，应使用`cash-attribution`；
+`reconcile-v2`仍要求生产端归因并严格检查残差，不从NAV差分补造价格组件。
+
 ```bash
 quant-report reconcile-v2 ^
   --run-dir "D:/projects/quant-crypto-basis/outputs/demo" ^

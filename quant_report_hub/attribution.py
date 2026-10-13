@@ -43,6 +43,9 @@ _LEDGER_COST_COMPONENTS = frozenset(
     }
 )
 _NON_COST_COMPONENTS = CONTROLLED_COMPONENTS - _LEDGER_COST_COMPONENTS
+# QExec's unified native fee labels map only to the report's existing fee taxonomy.
+# Source cost/attribution artifacts and the commission/tax classification stay unchanged.
+_NATIVE_FEE_ALIASES = {"maker": "maker_fee", "taker": "taker_fee"}
 _REPORT_SCALE = 18
 
 
@@ -185,7 +188,8 @@ def _source_components(frame: pd.DataFrame, base_currency: str) -> list[dict[str
     )
     records: list[dict[str, Any]] = []
     for row in frame.itertuples(index=False):
-        if row.component not in CONTROLLED_COMPONENTS:
+        component = _NATIVE_FEE_ALIASES.get(row.component, row.component)
+        if component not in CONTROLLED_COMPONENTS:
             raise V2AttributionError(f"attribution包含未冻结component: {row.component}")
         if row.base_currency != base_currency:
             raise V2AttributionError("attribution.base_currency必须等于运行的base_currency")
@@ -201,7 +205,7 @@ def _source_components(frame: pd.DataFrame, base_currency: str) -> list[dict[str
                 account_id=row.account_id,
                 strategy_id=row.strategy_id,
                 instrument_id=row.instrument_id,
-                component=row.component,
+                component=component,
                 currency=row.currency,
                 amount=amount,
                 base_currency=row.base_currency,
@@ -351,6 +355,7 @@ def _cost_records(
     consumed_ledger_keys: set[tuple[str, str, str]] = set()
     for row in costs.itertuples(index=False):
         component = str(row.cost_type)
+        component = _NATIVE_FEE_ALIASES.get(component, component)
         if component not in _LEDGER_COST_COMPONENTS:
             raise V2AttributionError(f"costs.cost_type未被M5受控: {component}")
         if component == "market_impact" and not config.get("market_impact_model_version"):

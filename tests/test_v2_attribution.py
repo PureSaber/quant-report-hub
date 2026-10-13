@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -383,6 +384,81 @@ def test_a_share_commission_and_tax_golden_reconcile_all_levels(tmp_path: Path):
     assert set(detail["component"]) == {"price", "commission", "tax"}
     assert reconciliation["status"].eq("pass").all()
     assert set(reconciliation["level"]) == {"account", "portfolio", "strategy", "instrument"}
+
+
+def test_real_a_share_native_fee_rows_preserve_exact_cash_and_input_bytes():
+    fixture = Path(__file__).parent / "fixtures" / "ashare_native_fees.json"
+    original = fixture.read_bytes()
+    payload = json.loads(original)
+    costs = pd.DataFrame(payload["costs"])
+    ledger = pd.DataFrame(payload["cash_ledger"])
+    fills = pd.DataFrame(payload["fills"])
+    before = [frame.copy(deep=True) for frame in (costs, ledger, fills)]
+    assert len(costs) == 9 and set(costs.cost_type) == {"taker"}
+    records = v2._cost_records(costs, ledger, [], fills, None, "CNY", {})
+    assert len(records) == 9
+    assert {record["component"] for record in records} == {"taker_fee"}
+    assert sum((record["amount"] for record in records), Decimal(0)) == Decimal("-68.035")
+    assert all(record["amount"] == record["base_amount"] for record in records)
+    for frame, snapshot in zip((costs, ledger, fills), before):
+        pd.testing.assert_frame_equal(frame, snapshot)
+    assert fixture.read_bytes() == original
+
+
+@pytest.mark.parametrize("native", ["maker", "taker"])
+@pytest.mark.parametrize("source_is_native", [False, True])
+def test_native_fee_aliases_match_source_without_double_counting(
+    tmp_path: Path, native: str, source_is_native: bool
+):
+    run = tmp_path / "native-fee"
+    canonical = f"{native}_fee"
+    source_label = native if source_is_native else canonical
+    _write_run(
+        run,
+        source=[_source_row("price", 20), _source_row(source_label, -7)],
+        costs=[(native, 7, "fill-1")],
+        nav_delta=13,
+    )
+    source_bytes = {str(path): path.read_bytes() for path in run.rglob("*") if path.is_file()}
+    _, detail, reconciliation = _run_and_read(run)
+    assert set(detail.component) == {"price", canonical}
+    assert int(detail.loc[detail.component.eq(canonical), "base_amount_units"].sum()) == -7 * 10**18
+    assert reconciliation.status.eq("pass").all()
+    assert all(Path(path).read_bytes() == content for path, content in source_bytes.items())
+
+
+@pytest.mark.parametrize("native", ["maker", "taker"])
+@pytest.mark.parametrize("invalid", ["negative", "cash_mismatch", "duplicate_source"])
+def test_native_fee_aliases_retain_exact_accounting_rejections(
+    tmp_path: Path, native: str, invalid: str
+):
+    run = tmp_path / "native-fee-guard"
+    _write_run(run, source=[_source_row("price", 20)], costs=[(native, 7, "fill-1")], nav_delta=13)
+    _, _, frames, _ = v2._read_validated_v2(run)
+    costs, ledger = frames["costs"].copy(), frames["cash_ledger"].copy()
+    source = []
+    if invalid == "negative":
+        costs.loc[0, "amount_units"] = -7
+        message = "非负"
+    elif invalid == "cash_mismatch":
+        ledger.loc[ledger.ledger_account.eq("assets:cash"), "amount_units"] = -8
+        message = "不精确相等"
+    else:
+        source = v2._source_components(
+            _frame("attribution", [_source_row(native, -7), _source_row(f"{native}_fee", -7)]),
+            BASE,
+        )
+        message = "聚合金额不一致"
+    with pytest.raises(V2AttributionError, match=message):
+        v2._cost_records(costs, ledger, source, frames["fills"], None, BASE, {})
+
+
+@pytest.mark.parametrize("unknown", ["maker_rebate", "taker_fee_extra", "TAKER", "borrow_cost"])
+def test_native_fee_aliases_do_not_accept_unknown_types(tmp_path: Path, unknown: str):
+    run = tmp_path / "unknown-fee"
+    _write_run(run, source=[_source_row("price", 20)], costs=[(unknown, 7, "fill-1")], nav_delta=13)
+    with pytest.raises(V2AttributionError, match="未被M5受控"):
+        _run_and_read(run)
 
 
 def test_futures_price_carry_roll_and_settlement_golden_reconcile(tmp_path: Path):
