@@ -18,11 +18,11 @@ dependencies = [
     "openpyxl==3.1.5",
     "pyarrow==25.0.1",
     # Reviewed native-ledger and isolated cash/trend interventions; pinned in the lock.
-    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@126e0ce1ae3cad7121baf7c311365ca4a7ad42c8",
+    "quant-lab @ git+https://github.com/PureSaber/quant-lab.git@4c48f8a678c8d29a7dc46294c99f0e668cd6c52b",
 ]
 
 [project.optional-dependencies]
-financial-data = ["quant-data-kit @ git+https://github.com/PureSaber/quant-data-kit.git@ba136c2fa2eea121bfb2ad7887b536c3952586f7"]
+financial-data = ["quant-data-kit @ git+https://github.com/PureSaber/quant-data-kit.git@ad3440700b226497c40093197f1df4321b49d1e8"]
 dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.10"]
 
 [project.scripts]
