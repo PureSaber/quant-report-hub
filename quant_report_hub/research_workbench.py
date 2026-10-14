@@ -363,6 +363,7 @@ def render_study(source: Path, output: Path, *, registry_path: Path | None = Non
         else ""
     )
     from quant_report_hub.optimizer_diagnostics import render_optimizer_section
+
     optimizer_html = render_optimizer_section(summary["results"])
     html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>策略研究 · {escape(summary["study_id"])}</title>
